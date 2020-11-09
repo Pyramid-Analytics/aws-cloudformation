@@ -1,0 +1,874 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  This workload template deploys a single instance of selected Pyramid processes.
+  You will be billed for the AWS resources used if you create a stack from this template. 
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+      - Label:
+          default: Instance configuration
+        Parameters:
+          - AMIID
+ #         - VPCID
+          - Subnet
+          - InstanceType
+          - KeyPairName
+          - WorkloadSecurityGroups
+          - PyramidRole
+          - PyramidInstanceProfile
+          - AssignPublicIP
+          - InstallProxy
+      - Label:
+          default: Pyramid instance configuration
+        Parameters:
+          - BaseStackName
+          - PyramidProcess
+          - InstancePurpose
+          - InitialUsername
+          - InitialUserPassword
+          - SharedFileSystemId
+          - MountTargetSecurityGroup
+          - IMDBFileSystemOption
+          - IMDBExternalFileSystemId
+          - RunOnce
+      - Label:
+          default: Repository Database configuration
+        Parameters:
+          - RepositoryType
+          - RDSAddress
+          - RDSPort
+          - RDSUser
+          - RDSPassword
+          - RDSName
+    ParameterLabels:
+      BaseStackName:
+        default: Base Stack this stack is a part of
+      PyramidProcess:
+        default: Pyramid processes to run
+      InstancePurpose:
+        default: Note on this instance's purpose
+      KeyPairName:
+        default: Key pair name
+      WorkloadSecurityGroups:
+        default: Security Groups for instances
+      PyramidInstanceProfile:
+        default: IamInstanceProfile for instance
+      PyramidRole:
+        default: IamRole for instance
+      AMIID:
+        default: Pyramid AMI Id
+ #     VPCID:
+ #       default: VPC ID
+      Subnet:
+        default: Subnet to run the instance in
+      AssignPublicIP:
+        default: Assign public IP and domain name
+      RepositoryType:
+        default: Using existing repository database, or creating new one
+      RDSAddress:
+        default: RDS database address
+      RDSPort:
+        default: RDS database port
+      RDSUser:
+        default: RDS database user name
+      RDSPassword:
+        default: RDS database password
+      RDSName:
+        default: RDS database name
+      InitialUsername:
+        default: Initial Pyramid user name
+      InitialUserPassword:
+        default: Initial Pyramid User password
+      InstanceType:
+        default: Cluster instance type
+      MountTargetSecurityGroup:
+        default: Security Group for EFS access
+      RunOnce:
+        default: Run once and terminate
+      InstallProxy:
+        default: Install nginx as a proxy to the Pyramid web server
+      SharedFileSystemId:
+        default: EFS Id for the deployment's shared file system
+      IMDBFileSystemOption:
+        default: Position of IMDB file system
+      IMDBExternalFileSystemId:
+        default: EFS Id for existing file system
+Parameters:
+  PyramidProcess:
+    Description: >-
+      For unattended installation.
+    Type: String
+    AllowedValues:
+      - Everything
+      - Router
+      - WebServer
+      - WebServerAndRouter
+      - RuntimeEngine
+      - TaskEngine
+      - RuntimeEngineAndTaskEngine
+      - RuntimeEngineAndAI
+      - TaskEngineAndAI
+      - RuntimeAndTaskEngineAndAI
+      - AIServer
+      - InMemoryDB
+      - Nothing
+    Default: Everything
+  BaseStackName:
+    Description: Base StackName this stack is a part of
+    Type: String
+    MinLength: '1'
+    MaxLength: '32'
+    AllowedPattern: '[-_a-zA-Z0-9]*'
+    ConstraintDescription: Required
+  InstancePurpose:
+    Description: Free text note indicating instance's purpose.
+    Type: String
+    MinLength: '1'
+    MaxLength: '32'
+    AllowedPattern: '[-_a-zA-Z0-9]*'
+    ConstraintDescription: Required
+  AMIID:
+    Description: AMI ID of the Pyramid AWS Workplace listing. Usually passed in from another template.
+    Type: AWS::EC2::Image::Id
+    ConstraintDescription: Required
+  PyramidInstanceProfile:
+    Description: IamInstanceProfile ID for instance.
+    Type: String
+    MinLength: '1'
+    ConstraintDescription: Required
+  PyramidRole:
+    Description: IamIRole ID for instance.
+    Type: String
+    MinLength: '1'
+    ConstraintDescription: Required
+  MountTargetSecurityGroup:
+    Description: For In-Memory EFS access.
+    Type: String
+    MinLength: '1'
+    ConstraintDescription: Required
+  WorkloadSecurityGroups:
+    Description: >-
+      Security groups shared between Pyramid processes
+    Type: CommaDelimitedList
+    ConstraintDescription: Required
+  RunOnce:
+    Description: >-
+      Run the instance start scripts and terminate.
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false
+    ConstraintDescription: Required
+  InstallProxy:
+    Description: >-
+      Install nginx as a proxy to the Pyramid web server.
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false
+    ConstraintDescription: Required
+  KeyPairName:
+    Description: >-
+      Name of an existing EC2 key pair, which allows you to securely connect to
+      your instance after it launches.
+    Type: 'AWS::EC2::KeyPair::KeyName'
+    ConstraintDescription: Required
+#  VPCID:
+#    Description: ID of your existing VPC for deployment.
+#    Type: 'AWS::EC2::VPC::Id'
+#    ConstraintDescription: Required
+  Subnet:
+    Description: >-
+      ID of private subnet 1 in Availability Zone 1 for the Pyramid
+      Servers (e.g., subnet-a0246dcd).
+    Type: 'AWS::EC2::Subnet::Id'
+    ConstraintDescription: Required
+  AssignPublicIP:
+    Description: >-
+      Assign public IP address and domain.
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false
+    ConstraintDescription: Required
+  InstanceType:
+    Description: >-
+      Amazon EC2 instance type for the Pyramid instances.
+      Has to be available for the deployment region.
+    Type: String
+    AllowedValues:
+      - m5.large
+      - m5.xlarge
+      - m5.2xlarge
+      - m5.4xlarge
+      - m5.8xlarge
+      - m5.12xlarge
+      - m5a.large
+      - m5a.xlarge
+      - m5a.2xlarge
+      - m5a.4xlarge
+      - m5a.8xlarge
+      - m5a.12xlarge
+      - m5n.large
+      - m5n.xlarge
+      - m5n.2xlarge
+      - m5n.4xlarge
+      - m5n.8xlarge
+      - m5n.12xlarge
+      - c5.large
+      - c5.xlarge
+      - c5.2xlarge
+      - c5.4xlarge
+      - c5.12xlarge
+      - c5a.large
+      - c5a.xlarge
+      - c5a.2xlarge
+      - c5a.4xlarge
+      - c5a.8xlarge
+      - c5a.12xlarge
+      - c5n.large
+      - c5n.xlarge
+      - c5n.2xlarge
+      - c5n.4xlarge
+    Default: m5.xlarge
+    MinLength: '1'
+    ConstraintDescription: Must contain valid instance type.
+  RepositoryType:
+    Description: >-
+      Creating or using a local or remote repository.
+    Type: String
+    AllowedValues:
+      - currentremote
+      - newremote
+      - newlocal
+    Default: currentremote
+    MinLength: '1'
+    ConstraintDescription: Must contain newremote, currentremote or newlocal.
+  RDSUser:
+    Description: Master user name for the RDS database.
+    Type: String
+    MinLength: '1'
+    MaxLength: '64'
+    AllowedPattern: '[-_a-zA-Z0-9]*'
+    ConstraintDescription: It can contain only alphanumeric characters and underscores.
+  RDSPassword:
+    Description: Master password for the RDS database.
+    Type: String
+    MinLength: '1'
+    MaxLength: '64'
+    NoEcho: 'true'
+    AllowedPattern: >-
+      useRDSPasswordInSecretsManager|^(?=^.{8,255}$)(?=.*[a-z])(?=.*[A-Z])(?=.*\d)((?=.*[^A-Za-z0-9])(?!.*[@/"'])).*$
+    ConstraintDescription: >-
+      Min 8 chars. Must include 1 uppercase, 1 lowercase, 1 number, 1 (non / @ " ') symbol
+  RDSAddress:
+    Description: Domain/Address of the Amazon Postgres RDS database.
+    Type: String
+    MinLength: '1'
+    MaxLength: '128'
+    AllowedPattern: '[-_a-zA-Z0-9\.]*'
+    ConstraintDescription: >-
+      Domain/Address should be letters, digits, '.', '-' or underscores. Maximum
+      128 characters long.
+  RDSPort:
+    Description: RDS Port
+    Type: Number
+    Default: '5432'
+    MinValue: '1024'
+    ConstraintDescription: Port number should be higher than 1024
+  RDSName:
+    Description: Repository database name.
+    Type: String
+    Default: pyramid
+    MinLength: '1'
+    MaxLength: '64'
+    AllowedPattern: '[-_a-zA-Z0-9]*'
+    ConstraintDescription: 'Can contain only alphanumeric characters, minus and underscores.'
+  InitialUserPassword:
+    AllowedPattern: "[a-zA-Z][a-zA-Z0-9]*"
+    ConstraintDescription: "Min 8 characters. Must begin with a letter and contain only alphanumeric characters."
+    Description: "The Pyramid initial user password."
+    MaxLength: "64"
+    MinLength: "8"
+    NoEcho: "True"
+    Type: String
+  InitialUsername: 
+    AllowedPattern: "[a-zA-Z][a-zA-Z0-9]*"
+    ConstraintDescription: "Must begin with a letter and contain only alphanumeric characters."
+    Default: admin
+    Description: "The Pyramid initial username."
+    MaxLength: "16"
+    MinLength: "1"
+    Type: String
+  SharedFileSystemId: 
+    AllowedPattern: "^$|[a-zA-Z][a-zA-Z0-9-]*"
+    ConstraintDescription: "Must begin with a letter and contain only alphanumeric characters or minus."
+    Default: ''
+    Description: "EFS volume Id for existing file system shared across deployment."
+    MaxLength: "32"
+    Type: String
+  IMDBFileSystemOption:
+    Description: File system type for in-memory database persistence.
+    Type: String
+    Default: onInstance
+    AllowedValues:
+      - onInstance
+      - existingExternal
+      - newExternal
+  IMDBExternalFileSystemId: 
+    AllowedPattern: "^$|[a-zA-Z][a-zA-Z0-9-]*"
+    ConstraintDescription: "Must begin with a letter and contain only alphanumeric characters or minus."
+    Default: ''
+    Description: "EFS volume Id for in-memory database persistence for existing file system. Use if IMDBFileSystemOption != onInstance"
+    MaxLength: "32"
+    Type: String
+Rules:
+  KeyPairsNotEmpty:
+    Assertions:
+      - Assert: !Not 
+          - 'Fn::EachMemberEquals':
+              - 'Fn::RefAll': 'AWS::EC2::KeyPair::KeyName'
+              - ''
+        AssertDescription: All key pair parameters must not be empty
+  SubnetsInVPC:
+    Assertions:
+      - Assert:
+          'Fn::EachMemberIn':
+            - 'Fn::ValueOfAll':
+                - 'AWS::EC2::Subnet::Id'
+                - VpcId
+            - 'Fn::RefAll': 'AWS::EC2::VPC::Id'
+        AssertDescription: All subnets must in the same VPC
+Conditions:
+  CurrentRepositoryTypeCondition: !Equals
+    - !Ref RepositoryType
+    - currentremote
+  #RemoteRepositoryTypeCondition: !Not
+  #  - !Equals
+  #    - !Ref RepositoryType
+  #    - newlocal
+  #UseRDSPasswordInSecretsManager: !Equals
+  #  - !Ref RDSPassword
+  #  - 'useRDSPasswordInSecretsManager'
+  TerminateInstance: !Equals
+   - !Ref RunOnce
+   - 'true'
+  InstallNginx: !Equals
+   - !Ref InstallProxy
+   - 'true'
+  AssignPublicIPCondition: !Equals
+   - !Ref AssignPublicIP
+   - 'true'
+  DisableComponents: !Not
+    - !Equals
+      - !Ref PyramidProcess
+      - 'Everything'
+  IMDBProcessIncluded: !Or
+    - !Equals
+      - !Ref PyramidProcess
+      - 'Everything'
+    - !Equals
+      - !Ref PyramidProcess
+      - 'InMemoryDB'
+  NotInternalIMDB: !And
+    - !Condition IMDBProcessIncluded
+    - !Not
+      - !Equals
+        - !Ref IMDBFileSystemOption
+        - 'internal'
+  InternalIMDB: !And
+    - !Condition IMDBProcessIncluded
+    - !Equals
+      - !Ref IMDBFileSystemOption
+      - 'internal'
+  CreateExternalIMDB: !And
+    - !Condition IMDBProcessIncluded
+    - !Equals
+      - !Ref IMDBFileSystemOption
+      - 'newExternal'
+Mappings:
+  ProcessesToExclude:
+    Processes:
+      Router: 'linws,linrte,linte,linimdb,linai'
+      WebServer: 'linrte,linte,linrtr,linimdb,linai'
+      WebServerAndRouter: 'linrte,linte,linimdb,linai'
+      RuntimeEngine: 'linws,linte,linrtr,linimdb,linai'
+      TaskEngine: 'linws,linrte,linrtr,linimdb,linai'
+      RuntimeEngineAndTaskEngine: 'linws,linrtr,linimdb,linai'
+      RuntimeEngineAndAI: 'linws,linte,linrtr,linimdb'
+      TaskEngineAndAI: 'linws,linrte,linrtr,linimdb'
+      RuntimeAndTaskEngineAndAI: 'linws,linrtr,linimdb'
+      AIServer: 'linws,linrte,linte,linrtr,linimdb'
+      InMemoryDB: 'linws,linrte,linte,linrtr,linai'
+      Nothing: 'linws,linrte,linte,linrtr,linimdb,linai'
+      Everything: ''
+
+Resources:
+  InstanceWaitHandle:
+    Type: 'AWS::CloudFormation::WaitConditionHandle'
+  InstanceWaitCondition:
+    Type: 'AWS::CloudFormation::WaitCondition'
+    Properties:
+      Handle: !Ref InstanceWaitHandle
+      # 30 mins
+      Timeout: '1800'
+      Count: 1
+
+  IMDBFileSystem:
+    Type: 'AWS::EFS::FileSystem'
+    Condition: CreateExternalIMDB
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BackupPolicy:
+        Status: ENABLED
+      Encrypted: true
+      FileSystemTags:
+        - Key: Name
+          Value: !Sub '${BaseStackName}-${AWS::StackName}-pyramid-IMDB'
+      FileSystemPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: Allow administration
+            Effect: Allow
+            Action:
+              - "elasticfilesystem:Client*"
+            Principal:
+              AWS:
+                - !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+                - !Sub 'arn:aws:iam::${AWS::AccountId}:role/${PyramidRole}'
+      KmsKeyId: !GetAtt IMDBFileSystemKey.Arn
+
+  IMDBFileSystemKey:
+    Type: 'AWS::KMS::Key'
+    Condition: CreateExternalIMDB
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      KeyPolicy:
+        Version: 2012-10-17
+        Id: !Sub '${BaseStackName}-${AWS::StackName}-pyramid-imdb-fs-key'
+        Statement:
+          - Sid: Allow administration of the key
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Action:
+              - 'kms:*'
+            Resource: '*'
+
+  PyramidIMDBFileSystemManagedPolicy:
+    Type: 'AWS::IAM::ManagedPolicy'
+    Condition: NotInternalIMDB
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: IMDBFileSystemMountTargets
+            Effect: Allow
+            Action:
+              - 'elasticfilesystem:DescribeMountTargets'
+              - 'elasticfilesystem:CreateMountTarget'
+            Resource:
+              - !Join
+                - ''
+                - - "arn:aws:elasticfilesystem:"
+                  - !Ref AWS::Region
+                  - ':'
+                  - !Ref AWS::AccountId
+                  - ':file-system/'
+                  - !If
+                    - CreateExternalIMDB
+                    - !Ref IMDBFileSystem
+                    - !Ref IMDBExternalFileSystemId
+      Roles:
+        - !Ref PyramidRole
+
+  IMDBMountTargetResource:
+    Type: 'AWS::EFS::MountTarget'
+    Condition: NotInternalIMDB
+    Properties:
+      FileSystemId: !If
+        - CreateExternalIMDB
+        - !Ref IMDBFileSystem
+        - !Ref IMDBExternalFileSystemId
+      SubnetId: !Ref Subnet
+      SecurityGroups:
+        - !Ref MountTargetSecurityGroup
+
+  PyramidInstance:
+    Type: 'AWS::EC2::Instance'
+    Metadata:
+      'AWS::CloudFormation::Init':
+        configSets:
+          default:
+            - 01_setupCfnHup
+            - 02_config-amazon-cloudwatch-agent
+            - 03_restart_amazon-cloudwatch-agent
+            - EnableAmazonLinuxExtraPackages
+            - InstallPyramid
+            - !If
+              - InstallNginx
+              - InstallNginx
+              - !Ref 'AWS::NoValue'
+          UpdateEnvironment:
+            - 02_config-amazon-cloudwatch-agent
+            - 03_restart_amazon-cloudwatch-agent
+
+        # Cfn-hup setting, it is to monitor the change of metadata.
+        # When there is change in the contents of json file in the metadata section, cfn-hup will call cfn-init to restart the AmazonCloudWatchAgent.
+        01_setupCfnHup:
+          files:
+            '/etc/cfn/cfn-hup.conf':
+              content: !Sub |
+                [main]
+                stack=${AWS::StackId}
+                region=${AWS::Region}
+                interval=1
+              mode: '000400'
+              owner: root
+              group: root
+            '/etc/cfn/hooks.d/amazon-cloudwatch-agent-auto-reloader.conf':
+              content: !Sub |
+                [cfn-auto-reloader-hook]
+                triggers=post.update
+                path=Resources.PyramidInstance.Metadata.AWS::CloudFormation::Init.02_config-amazon-cloudwatch-agent
+                action=/opt/aws/bin/cfn-init -v --stack ${AWS::StackId} --resource PyramidInstance --region ${AWS::Region} --configsets UpdateEnvironment
+                runas=root
+              mode: '000400'
+              owner: root
+              group: root
+            "/lib/systemd/system/cfn-hup.service":
+              content: >-
+                [Unit]
+                Description=cfn-hup daemon
+                [Service]
+                Type=simple
+                ExecStart=/opt/aws/bin/cfn-hup
+                Restart=always
+                [Install]
+                WantedBy=multi-user.target
+          commands:
+            01enable_cfn_hup:
+              command: systemctl enable cfn-hup.service
+            02start_cfn_hup:
+              command: systemctl start cfn-hup.service
+
+        # Definition of json configuration of AmazonCloudWatchAgent
+        02_config-amazon-cloudwatch-agent:
+          files:
+            /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json:
+              content: !Sub |
+                {
+                  "logs": {
+                    "logs_collected": {
+                      "files": {
+                        "collect_list": [
+                          {
+                            "file_path": "/var/log/cfn-ini*.log",
+                            "log_group_name": "pyramid/${BaseStackName}",
+                            "log_stream_name": "{instance_id}-${InstancePurpose}/cf-init",
+                            "timestamp_format": "%Y-%m-%d %H:%M:%S,%f"
+                          },
+                          {
+                            "file_path": "/var/log/cloud-*.log",
+                            "log_group_name": "pyramid/${BaseStackName}",
+                            "log_stream_name": "{instance_id}-${InstancePurpose}/cloud-init",
+                            "timestamp_format": "%Y-%m-%d %H:%M:%S,%f"
+                          },
+                           {
+                            "file_path": "/tmp/*.log",
+                            "log_group_name": "pyramid/${BaseStackName}",
+                            "log_stream_name": "{instance_id}-${InstancePurpose}/installers",
+                            "timestamp_format": "%Y-%m-%d %H:%M:%S,%f"
+                          },
+                          {
+                            "file_path": "/opt/Pyramid/log/*.log",
+                            "log_group_name": "pyramid/${BaseStackName}",
+                            "log_stream_name": "{instance_id}-${InstancePurpose}/pyramid-logs",
+                            "timestamp_format": "%Y-%m-%d %H:%M:%S,%f"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+        # Invoke amazon-cloudwatch-agent-ctl to restart the AmazonCloudWatchAgent.
+        03_restart_amazon-cloudwatch-agent:
+          commands:
+            01_stop_service:
+              command: /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a stop
+            02_start_service:
+              command: /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
+
+        EnableAmazonLinuxExtraPackages:
+          packages:
+            yum:
+              amazon-efs-utils: []
+          commands:
+            enable_nginx_R_EPEL:
+              command: "amazon-linux-extras enable nginx1 R3.4 epel postgresql10 && yum clean metadata"
+
+        InstallPyramid:
+          packages:
+            yum:
+              # installed with EFS
+              # nfs-utils: []
+              postgresql: []
+              
+          files:
+            /usr/src/pyramid/pyramid-unattended-install.ini:
+              content: !Join 
+                - ''
+                - - install-location=/opt/Pyramid
+                  - |+
+
+                  - data-location=/opt/Pyramid/repository
+                  - |+
+
+                  - installation-type=1
+                  - |+
+
+                  - !If
+                    - DisableComponents
+                    - !Join
+                      - ''
+                      - - disable-components=
+                        - !FindInMap 
+                          - ProcessesToExclude
+                          - Processes
+                          - !Ref PyramidProcess
+                    - ''
+                  - |+
+
+                  - repositoryChoice=
+                  - !Ref RepositoryType
+                  - |+
+
+                  - !If
+                    - CurrentRepositoryTypeCondition
+                    - selectCurrentRepository=0
+                    - selectNewRepository=0
+                  - |+
+
+                  - postgreSqlHost=
+                  - !Ref RDSAddress
+                  - |+
+
+                  - postgreSqlPort=
+                  - !Ref RDSPort
+                  - |+
+
+                  - postgreSqlDb=
+                  - !Ref RDSName
+                  - |+
+
+                  - postgreSqlUsername=
+                  - !Ref RDSUser
+                  - |+
+
+                  - postgreSqlUserPassword=
+                  - !Ref RDSPassword
+                  - |+
+
+                  - initUserName=
+                  - !Ref InitialUsername
+                  - |+
+
+                  - initUserPassword=
+                  - !Ref InitialUserPassword
+                  - |+
+
+                  - ''
+
+              encoding: plain
+              mode: '000644'
+          commands:
+
+            0-update-chrome dependencies:
+              command: yum update nss -y
+              ignoreErrors: 'false'
+            1-mount-shared-fs:
+              command: !Sub "/usr/src/pyramid/mnt-efs-helper-imdb.sh --mode mountOnly --subnet ${Subnet} --securityGroup ${MountTargetSecurityGroup} --efsId ${SharedFileSystemId}  --region ${AWS::Region}"
+              ignoreErrors: 'false'
+            2-install:
+              cwd: /usr/src/pyramid
+              command: "for i in Pyramid*.run; do /usr/src/pyramid/$i --mode unattended --optionfile /usr/src/pyramid/pyramid-unattended-install.ini; done"
+              ignoreErrors: 'false'
+            3-cleanup:
+              command: "rm /usr/src/pyramid/pyramid-unattended-install.ini && rm -f /tmp/pyr*.log && rm -f /tmp/bit*.log"
+              ignoreErrors: 'false'
+            4-ensure-shared-fs-ownership:
+              command: "chown pyramid:pyramid /mnt/pyramid"
+              ignoreErrors: 'false'
+            5-mount-IMDB-fs:
+              test: !Join
+                - ''
+                - - '[[ ''Everything,InMemoryDB'' == *"'
+                  - !Ref PyramidProcess
+                  - '"* && '''
+                  - !Ref IMDBFileSystemOption
+                  - ''' != ''onInstance'' ]]'
+              command: !Join
+                - ''
+                - - "/usr/src/pyramid/mnt-efs-helper-imdb.sh --mountPoint /mnt/pyramid-imdb"
+                  - " --subnet "
+                  - !Ref Subnet
+                  - " --securityGroup "
+                  - !Ref MountTargetSecurityGroup
+                  - " --efsId "
+                  - !If
+                    - CreateExternalIMDB
+                    - !Ref IMDBFileSystem
+                    - !Ref IMDBExternalFileSystemId
+                  - " --region "
+                  - !Ref 'AWS::Region'
+              ignoreErrors: 'false'
+
+        InstallNginx:
+          packages:
+            yum:
+              nginx: []
+          files:
+            /etc/nginx/default.d/proxy.conf:
+              content: |
+                location / {
+                  proxy_pass http://127.0.0.1:8181;
+                }
+                location /events {
+                  proxy_pass http://127.0.0.1:8181/events;
+                  proxy_http_version 1.1;
+                  proxy_set_header Upgrade $http_upgrade;
+                  proxy_set_header Connection "upgrade";
+                }
+              mode: '000755'
+              owner: root
+              group: root
+
+          services:
+            sysvinit:
+              nginx:
+                enabled: true
+                ensureRunning: true
+                files:
+                  - /etc/nginx/default.d/proxy.conf
+    Properties:
+      ImageId: !Ref AMIID
+      KeyName: !Ref KeyPairName
+      IamInstanceProfile: !Ref PyramidInstanceProfile
+      InstanceType: !Ref InstanceType
+      SecurityGroupIds: !If
+        - AssignPublicIPCondition
+        - !Ref 'AWS::NoValue'
+        - !Ref WorkloadSecurityGroups
+      SubnetId: !If
+        - AssignPublicIPCondition
+        - !Ref 'AWS::NoValue'
+        - !Ref Subnet
+      InstanceInitiatedShutdownBehavior: !If
+        - TerminateInstance
+        - terminate
+        - stop
+      Monitoring: false
+      DisableApiTermination: false
+      BlockDeviceMappings:
+        - DeviceName: "/dev/sda1"
+          Ebs: 
+            VolumeSize: 20
+      NetworkInterfaces: !If
+        - AssignPublicIPCondition
+        - -
+            AssociatePublicIpAddress: true
+            DeleteOnTermination: true
+            DeviceIndex: '0'
+            GroupSet: !Ref WorkloadSecurityGroups
+            SubnetId: !Ref Subnet
+        - !Ref 'AWS::NoValue'
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - |
+              Content-Type: multipart/mixed; boundary="//"
+              MIME-Version: 1.0
+              --//
+              Content-Type: text/cloud-config; charset="us-ascii"
+              MIME-Version: 1.0
+              Content-Transfer-Encoding: 7bit
+              Content-Disposition: attachment; filename="cloud-config.txt"
+              #cloud-config
+              cloud_final_modules:
+              [scripts-user, always]
+              --//
+              Content-Type: text/x-shellscript; charset="us-ascii"
+              MIME-Version: 1.0
+              Content-Transfer-Encoding: 7bit
+              Content-Disposition: attachment; filename="userdata.txt"
+              #!/bin/bash -xe
+
+              # install CloudWatch
+              rpm -Uvh https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm
+
+              # run cfn-init
+
+            - '/opt/aws/bin/cfn-init -v  --configsets default --stack '
+            - !Ref 'AWS::StackName'
+            - ' --resource PyramidInstance --region '
+            - !Ref 'AWS::Region'
+            - |+
+
+            - |
+              # Signal the status from cfn-init
+
+            - '/opt/aws/bin/cfn-signal -e $? '
+            - !Base64
+              Ref: InstanceWaitHandle
+            - |+
+
+            - |
+              # If asked, halt and catch fire
+
+            - 'if [ '''
+            - !Ref RunOnce
+            - ''' = ''true'' ] ; then /sbin/halt -p; fi'
+            - |+
+
+            - ''
+            - |+
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-${InstancePurpose}'
+Outputs:
+  RDSAddress:
+    Description: Database domain name
+    Value: !Ref RDSAddress
+  PyramidRDSName:
+    Description: Pyramid database name
+    Value: !Ref RDSName
+  InitialUsername:
+    Value: !Ref InitialUsername
+    Description: Initial user name
+  InitialPassword:
+    Value: !Ref InitialUserPassword
+    Description: Initial user password
+  PublicDNSName:
+    Value: !GetAtt PyramidInstance.PublicDnsName
+    Description: Instance Public DNS name
+  PrivateDNSName:
+    Value: !GetAtt PyramidInstance.PrivateDnsName
+    Description: Instance Private DNS name
+  IMDBFileSystem:
+    Value: !If
+      - IMDBProcessIncluded
+      - !If
+        - CreateExternalIMDB
+        - !Ref IMDBFileSystem
+        - !If
+          - InternalIMDB
+          - Internal
+          - !Ref IMDBExternalFileSystemId
+      - 'No In-memory database file system created'
+    Description: EFS file system for the In-Memory database
+
