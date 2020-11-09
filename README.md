@@ -1,3 +1,5 @@
-# AWS CloudFormation for Pyramid Analytics Marketplace
+# AWS CloudFormation for Pyramid Analytics
 
-A variety of CloudFormation templates to support use of the Pyramid Analytics AWS Marketplace listing.
+CloudFormation templates and resources to support Pyramid Analytics deployment on AWS.
+
+See the marketplace directory for templates for the AWS Marketplace Hourly/Annual listing.
