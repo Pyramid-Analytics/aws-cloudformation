@@ -158,7 +158,7 @@ Resources:
   LaunchInstance:
     Type: 'AWS::CloudFormation::Stack'
     Properties:
-      TemplateURL: https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-13/pyramid-single-instance.yaml
+      TemplateURL: https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-13-update-1/pyramid-single-instance.yaml
       Parameters:
         BaseStackName: !Ref BaseStackName
         AMIID: !FindInMap 
@@ -169,32 +169,18 @@ Resources:
         InstancePurpose: !Ref PyramidProcess
         InstanceType: !Ref InstanceType
 
-        VPCID:
-          Fn::ImportValue:
-            !Sub "${BaseStackName}-VPCID"
         Subnet: !Ref Subnet
-
         WorkloadSecurityGroups: !Join
           - ','
-          - - Fn::ImportValue:
-                !Sub "${BaseStackName}-PyramidProcessesSecurityGroup"
-            - Fn::ImportValue:
-                !Sub "${BaseStackName}-MountTargetSecurityGroup"
+          - - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/PyramidProcessesSecurityGroup:1}}'
+            - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/MountTargetSecurityGroup:1}}'
 
-        KeyPairName:
-          Fn::ImportValue:
-            !Sub "${BaseStackName}-KeyPairName"
+        KeyPairName: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/KeyPairName:1}}'
 
-        PyramidRole:
-          Fn::ImportValue:
-            !Sub "${BaseStackName}-PyramidRole"
-        PyramidInstanceProfile:
-          Fn::ImportValue:
-            !Sub "${BaseStackName}-PyramidInstanceProfile"
+        PyramidRole: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/PyramidRole:1}}'
+        PyramidInstanceProfile: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/PyramidInstanceProfile:1}}'
 
-        SharedFileSystemId: 
-          Fn::ImportValue:
-            !Sub "${BaseStackName}-SharedFileSystem"
+        SharedFileSystemId: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/SharedFileSystem:1}}'
 
         IMDBFileSystemOption: !If
           - IMDBProcessIncluded
@@ -210,32 +196,18 @@ Resources:
             - !Ref AWS::NoValue
             - !Ref IMDBExternalFileSystemId
           - !Ref AWS::NoValue
-        # IMDBFileSystemOption: newExternal
-        MountTargetSecurityGroup:
-          Fn::ImportValue:
-            !Sub "${BaseStackName}-MountTargetSecurityGroup"
+
+        MountTargetSecurityGroup: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/MountTargetSecurityGroup:1}}'
 
         RepositoryType: currentremote
-        RDSAddress:
-          Fn::ImportValue:
-            !Sub "${BaseStackName}-RDSAddress"
-        RDSPort:
-          Fn::ImportValue:
-            !Sub "${BaseStackName}-RDSPort"
-        RDSName:
-          Fn::ImportValue:
-            !Sub "${BaseStackName}-RDSName"
-        RDSUser:
-          Fn::ImportValue:
-            !Sub "${BaseStackName}-RDSUser"
 
-        RDSPassword: !Sub '{{resolve:secretsmanager:/Pyramid/${BaseStackName}/RDSPassword}}'
+        RDSAddress: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/RepositoryDatabaseAddress:1}}'
+        RDSPort: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/RepositoryDatabasePort:1}}'
+        RDSName: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/RepositoryDatabaseName:1}}'
+        RDSUser: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/RepositoryDatabaseUsername:1}}'
+        RDSPassword: !Sub '{{resolve:secretsmanager:/Pyramid/${BaseStackName}/RepositoryDatabasePassword}}'
+
+        InitialUsername: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/InitialUsername:1}}'
+        InitialUserPassword: !Sub '{{resolve:secretsmanager:/Pyramid/${BaseStackName}/InitialUserPassword}}'
           # Fn::ImportValue:
-          #   !Sub "${BaseStackName}-RDSPassword"
-
-        InitialUsername:
-          Fn::ImportValue:
-            !Sub "${BaseStackName}-InitialUsername"
-        InitialUserPassword:
-          Fn::ImportValue:
-            !Sub "${BaseStackName}-InitialUserPassword"
+          #   !Sub "${BaseStackName}-InitialUserPassword"

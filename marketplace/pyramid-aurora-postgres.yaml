@@ -232,11 +232,13 @@ Conditions:
 
 Resources:
 
+  # this template has a retain policy in the callers
+  # do not retain here, to allow deletion
   EncryptionKey:
     Type: AWS::KMS::Key
     Condition: UseDatabaseEncryption
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    # DeletionPolicy: Retain
+    # UpdateReplacePolicy: Retain
     Properties:
       KeyPolicy:
         Version: 2012-10-17
@@ -251,6 +253,7 @@ Resources:
       Tags:
         - Key: Name
           Value: !Ref AWS::StackName
+
   EncryptionKeyAlias:
     Type: AWS::KMS::Alias
     Condition: UseDatabaseEncryption
@@ -298,8 +301,8 @@ Resources:
           - CreateSecurityGroup
           - [!Ref RDSSecurityGroup]
           - [!Ref CustomDBSecurityGroup]
-    UpdateReplacePolicy: Snapshot
-    DeletionPolicy: Retain
+    # UpdateReplacePolicy: Snapshot
+    # DeletionPolicy: Retain
 
   AuroraDB1:
     Type: "AWS::RDS::DBInstance"

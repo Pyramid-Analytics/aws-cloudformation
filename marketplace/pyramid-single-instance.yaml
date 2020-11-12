@@ -9,7 +9,6 @@ Metadata:
           default: Instance configuration
         Parameters:
           - AMIID
- #         - VPCID
           - Subnet
           - InstanceType
           - KeyPairName
@@ -57,8 +56,6 @@ Metadata:
         default: IamRole for instance
       AMIID:
         default: Pyramid AMI Id
- #     VPCID:
- #       default: VPC ID
       Subnet:
         default: Subnet to run the instance in
       AssignPublicIP:
@@ -175,10 +172,6 @@ Parameters:
       your instance after it launches.
     Type: 'AWS::EC2::KeyPair::KeyName'
     ConstraintDescription: Required
-#  VPCID:
-#    Description: ID of your existing VPC for deployment.
-#    Type: 'AWS::EC2::VPC::Id'
-#    ConstraintDescription: Required
   Subnet:
     Description: >-
       ID of private subnet 1 in Availability Zone 1 for the Pyramid
@@ -255,15 +248,17 @@ Parameters:
     AllowedPattern: '[-_a-zA-Z0-9]*'
     ConstraintDescription: It can contain only alphanumeric characters and underscores.
   RDSPassword:
-    Description: Master password for the RDS database.
+    Description: >-
+      Master password for the RDS database. Min 8 characters. Can contain only
+      alphanumeric characters, minus and underscores.
     Type: String
-    MinLength: '1'
+    MinLength: '8'
     MaxLength: '64'
     NoEcho: 'true'
-    AllowedPattern: >-
-      useRDSPasswordInSecretsManager|^(?=^.{8,255}$)(?=.*[a-z])(?=.*[A-Z])(?=.*\d)((?=.*[^A-Za-z0-9])(?!.*[@/"'])).*$
+    AllowedPattern: '[-_a-zA-Z0-9]*'
     ConstraintDescription: >-
-      Min 8 chars. Must include 1 uppercase, 1 lowercase, 1 number, 1 (non / @ " ') symbol
+      Min 8 characters. Can contain only alphanumeric characters, minus and
+      underscores.
   RDSAddress:
     Description: Domain/Address of the Amazon Postgres RDS database.
     Type: String
@@ -333,15 +328,6 @@ Rules:
               - 'Fn::RefAll': 'AWS::EC2::KeyPair::KeyName'
               - ''
         AssertDescription: All key pair parameters must not be empty
-  SubnetsInVPC:
-    Assertions:
-      - Assert:
-          'Fn::EachMemberIn':
-            - 'Fn::ValueOfAll':
-                - 'AWS::EC2::Subnet::Id'
-                - VpcId
-            - 'Fn::RefAll': 'AWS::EC2::VPC::Id'
-        AssertDescription: All subnets must in the same VPC
 Conditions:
   CurrentRepositoryTypeCondition: !Equals
     - !Ref RepositoryType
@@ -499,6 +485,18 @@ Resources:
       SecurityGroups:
         - !Ref MountTargetSecurityGroup
 
+  IMDBFileSystemSSM:
+    Condition: CreateExternalIMDB
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/Pyramid/${BaseStackName}/${AWS::StackName}/IMDBFileSystem'
+      Type: String
+      Value: !Ref IMDBFileSystem
+      Description: EFS id for added IMDB
+      Tags:
+        StackName: !Sub '${BaseStackName}'
+        Vendor: Pyramid
+
   PyramidInstance:
     Type: 'AWS::EC2::Instance'
     Metadata:
@@ -542,7 +540,7 @@ Resources:
               owner: root
               group: root
             "/lib/systemd/system/cfn-hup.service":
-              content: >-
+              content: |
                 [Unit]
                 Description=cfn-hup daemon
                 [Service]
@@ -837,9 +835,17 @@ Resources:
 
             - ''
             - |+
+
       Tags:
         - Key: Name
-          Value: !Sub '${AWS::StackName}-${InstancePurpose}'
+          Value: !Sub '${AWS::StackName}'
+        - Key: Vendor
+          Value: Pyramid
+        - Key: StackName
+          Value: !Sub '${BaseStackName}'
+        - Key: Contents
+          Value: !Sub '${InstancePurpose}'
+
 Outputs:
   RDSAddress:
     Description: Database domain name
