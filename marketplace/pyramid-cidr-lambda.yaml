@@ -145,7 +145,5 @@ Resources:
       Role: !GetAtt CidrOfVpcRole.Arn
 Outputs:
   CIDRofVPCARN:
-    Description: Pyramid Public URL
+    Description: ARN of CidrOfVpc Lambda
     Value: !GetAtt CidrOfVpcLambda.Arn
-    Export:
-      Name: !Sub '${BaseStackName}-CIDRofVPC-ARN'

@@ -14,6 +14,7 @@ Metadata:
           - AMIID
           - VPCID
           - Subnet
+          - VPCCIDR
           - InstanceType
           - KeyPairName
           - HTTPAccessCIDR
@@ -39,6 +40,8 @@ Metadata:
         default: Key pair name
       VPCID:
         default: VPC ID
+      VPCCIDR:
+        default: CIDR of VPC
       Subnet:
         default: Subnet for Pyramid instance
       InstanceType:
@@ -73,7 +76,6 @@ Parameters:
     Type: String
     Default: ''
     MaxLength: '21'
-    # ami-05620cf9c8407351a
     AllowedPattern: '^$|ami-[a-f0-9]{6,17}$'
   KeyPairName:
     Description: Name of an existing EC2 key pair for SSH connections.
@@ -86,6 +88,16 @@ Parameters:
   Subnet:
     Description: Subnet for instance. Accessible by HTTP/S from browsers.
     Type: 'AWS::EC2::Subnet::Id'
+  VPCCIDR:
+    AllowedPattern: >-
+      ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/([0-9]|[1-2][0-9]|3[0-2]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/x
+    Description: >-
+      Allowed CIDR block for HTTP and HTTPS traffic. Please set CIDR to
+      x.x.x.x/32 to allow one specific IP address access, 0.0.0.0/0 to allow all
+      IP addresses access, or another CIDR range.
+    Type: String
+    MinLength: '9'
   InstanceType:
     Description: >-
       Amazon EC2 instance type for the Pyramid instance. Has to be available for
@@ -294,6 +306,13 @@ Resources:
                 Resource:
                   - !Sub >-
                     arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:/Pyramid/${BaseStackName}/*
+              - Sid: SSMGet
+                Effect: Allow
+                Action:
+                  - 'ssm:GetParameter'
+                Resource:
+                  - !Sub >-
+                    arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/Pyramid/${BaseStackName}/*
               - Effect: Allow
                 Action:
                   - 'ec2:DescribeSubnets'
@@ -305,14 +324,14 @@ Resources:
       Roles:
         - !Ref PyramidRole
   
-  CidrOfVpc:
-    Type: 'Custom::CidrOfVpcLambda'
-    Properties:
-      ServiceToken:
-        Fn::ImportValue:
-          !Sub "${BaseStackName}-CIDRofVPC-ARN"
-      VpcId: !Ref VPCID
-      Region: !Ref 'AWS::Region'
+  # CidrOfVpc:
+  #   Type: 'Custom::CidrOfVpcLambda'
+  #   Properties:
+  #     ServiceToken:
+  #       Fn::ImportValue:
+  #         !Sub "${BaseStackName}-CIDRofVPC-ARN"
+  #     VpcId: !Ref VPCID
+  #     Region: !Ref 'AWS::Region'
 
   WebAccessSecurityGroup:
     Type: 'AWS::EC2::SecurityGroup'
@@ -378,7 +397,7 @@ Resources:
         - IpProtocol: '-1'
           FromPort: -1
           ToPort: -1
-          CidrIp: !GetAtt CidrOfVpc.CidrBlock
+          CidrIp: !Ref VPCCIDR
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 2049
@@ -583,7 +602,7 @@ Resources:
   RDSPasswordSecret:
     Type: 'AWS::SecretsManager::Secret'
     Properties:
-      Name: !Sub '/Pyramid/${BaseStackName}/RDSPassword'
+      Name: !Sub '/Pyramid/${BaseStackName}/RepositoryDatabasePassword'
       Description: Password for RDS service
       SecretString: !Ref RDSPassword
       Tags:
@@ -591,7 +610,21 @@ Resources:
           Key: StackName
           Value: !Sub '${BaseStackName}'
         -
-          Key: AppName
+          Key: Vendor
+          Value: Pyramid
+
+  InitialUserPasswordSecret:
+    Type: 'AWS::SecretsManager::Secret'
+    Properties:
+      Name: !Sub '/Pyramid/${BaseStackName}/InitialUserPassword'
+      Description: Password for RDS service
+      SecretString: !Ref InitialUserPassword
+      Tags:
+        -
+          Key: StackName
+          Value: !Sub '${BaseStackName}'
+        -
+          Key: Vendor
           Value: Pyramid
 
   PyramidLogGroup:
@@ -605,7 +638,7 @@ Resources:
     DependsOn: RDSPasswordSecret
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-13/pyramid-single-instance.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-13-update-1/pyramid-single-instance.yaml
       Parameters:
         AMIID: !Ref AMIID
         BaseStackName: !Ref 'BaseStackName'
@@ -635,90 +668,231 @@ Resources:
         RDSPort: !Ref RDSPort
         RDSName: !Ref RDSName
         RDSUser: !Ref RDSUser
-        RDSPassword: !Sub '{{resolve:secretsmanager:/Pyramid/${BaseStackName}/RDSPassword}}'
+        RDSPassword: !Sub '{{resolve:secretsmanager:/Pyramid/${BaseStackName}/RepositoryDatabasePassword}}'
         InitialUsername: !Ref InitialUsername
-        InitialUserPassword: !Ref InitialUserPassword
+        InitialUserPassword: !Sub '{{resolve:secretsmanager:/Pyramid/${BaseStackName}/InitialUserPassword}}'
+
+  KeyPairNameSSM:
+    DependsOn: CentralInstance
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/Pyramid/${BaseStackName}/KeyPairName'
+      Type: String
+      Value: !Ref KeyPairName
+      Description: Key pair name
+      Tags:
+        StackName: !Sub '${BaseStackName}'
+        Vendor: Pyramid
+
+  PyramidProcessesSecurityGroupSSM:
+    DependsOn: CentralInstance
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/Pyramid/${BaseStackName}/PyramidProcessesSecurityGroup'
+      Type: String
+      Value: !Ref PyramidProcessesSecurityGroup
+      Description: Common security group for all Pyramid instances
+      Tags:
+        StackName: !Sub '${BaseStackName}'
+        Vendor: Pyramid
+
+  PyramidRoleSSM:
+    DependsOn: CentralInstance
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/Pyramid/${BaseStackName}/PyramidRole'
+      Type: String
+      Value: !Ref PyramidRole
+      Description: Common role for all Pyramid instances
+      Tags:
+        StackName: !Sub '${BaseStackName}'
+        Vendor: Pyramid
+
+  PyramidInstanceProfileSSM:
+    DependsOn: CentralInstance
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/Pyramid/${BaseStackName}/PyramidInstanceProfile'
+      Type: String
+      Value: !Ref PyramidInstanceProfile
+      Description: Common instance profile for all Pyramid instances
+      Tags:
+        StackName: !Sub '${BaseStackName}'
+        Vendor: Pyramid
+
+  MountTargetSecurityGroupSSM:
+    DependsOn: CentralInstance
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/Pyramid/${BaseStackName}/MountTargetSecurityGroup'
+      Type: String
+      Value: !Ref MountTargetSecurityGroup
+      Description: Security group to allow Pyramid instances mount EFS volumes
+      Tags:
+        StackName: !Sub '${BaseStackName}'
+        Vendor: Pyramid
+
+  IMDBFileSystemSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/Pyramid/${BaseStackName}/IMDBFileSystem'
+      Type: String
+      Value: !GetAtt CentralInstance.Outputs.IMDBFileSystem
+      Description: EFS id for IMDB within Central instance
+      Tags:
+        StackName: !Sub '${BaseStackName}'
+        Vendor: Pyramid
+
+  SharedFileSystemSSM:
+    DependsOn: CentralInstance
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/Pyramid/${BaseStackName}/SharedFileSystem'
+      Type: String
+      Value: !Ref SharedFileSystem
+      Description: EFS volume shared across Pyramid instances
+      Tags:
+        StackName: !Sub '${BaseStackName}'
+        Vendor: Pyramid
+
+  RepositoryDatabaseAddressSSM:
+    DependsOn: CentralInstance
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/Pyramid/${BaseStackName}/RepositoryDatabaseAddress'
+      Type: String
+      Value: !Ref RDSAddress
+      Description: RDS domain of repository
+      Tags:
+        StackName: !Sub '${BaseStackName}'
+        Vendor: Pyramid
+
+  RepositoryDatabasePortSSM:
+    DependsOn: CentralInstance
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/Pyramid/${BaseStackName}/RepositoryDatabasePort'
+      Type: String
+      Value: !Ref RDSPort
+      Description: Port for repository in RDS
+      Tags:
+        StackName: !Sub '${BaseStackName}'
+        Vendor: Pyramid
+
+  RepositoryDatabaseUsernameSSM:
+    DependsOn: CentralInstance
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/Pyramid/${BaseStackName}/RepositoryDatabaseUsername'
+      Type: String
+      Value: !Ref RDSUser
+      Description: User name for repository in RDS
+      Tags:
+        StackName: !Sub '${BaseStackName}'
+        Vendor: Pyramid
+
+  RepositoryDatabasePasswordARNSSM:
+    DependsOn: CentralInstance
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/Pyramid/${BaseStackName}/RepositoryDatabasePasswordARN'
+      Type: String
+      Value: !Ref RDSPasswordSecret
+      Description: ARN of repository database password Secret
+      Tags:
+        StackName: !Sub '${BaseStackName}'
+        Vendor: Pyramid
+
+  RepositoryDatabaseNameSSM:
+    DependsOn: CentralInstance
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/Pyramid/${BaseStackName}/RepositoryDatabaseName'
+      Type: String
+      Value: !Ref RDSName
+      Description: Repository schema name in RDS
+      Tags:
+        StackName: !Sub '${BaseStackName}'
+        Vendor: Pyramid
+
+  InitialUsernameSSM:
+    DependsOn: CentralInstance
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/Pyramid/${BaseStackName}/InitialUsername'
+      Type: String
+      Value: !Ref InitialUsername
+      Description: Initial admin User name for the yramid deployment
+      Tags:
+        StackName: !Sub '${BaseStackName}'
+        Vendor: Pyramid
+
+  InitialUserPasswordARNSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/Pyramid/${BaseStackName}/InitialUserPasswordARN'
+      Type: String
+      Value: !Ref InitialUserPasswordSecret
+      Description: ARN of repository database password Secret
+      Tags:
+        StackName: !Sub '${BaseStackName}'
+        Vendor: Pyramid
+
 Outputs:
   PyramidPublicURL:
-    Description: Pyramid Public URL
-    Value: !Join 
+    Value: !Join
       - ''
       - - 'http://'
         - !GetAtt CentralInstance.Outputs.PublicDNSName
-    Export:
-      Name: !Sub '${BaseStackName}-Pyramid-Public-URL'
+    Description: Pyramid Public URL
+  PrivateDNSName:
+    Value: !GetAtt CentralInstance.Outputs.PrivateDNSName
+    Description: Instance Private DNS name
+  PublicDNSName:
+    Value: !GetAtt CentralInstance.Outputs.PublicDNSName
+    Description: Instance Public DNS name
   VPC:
     Value: !Ref VPCID
     Description: VPC for deployment
-    Export:
-      Name: !Sub '${BaseStackName}-VPCID'
-  KeyPair:
+  KeyPairName:
     Value: !Ref KeyPairName
     Description: Key Pair for instances
-    Export:
-      Name: !Sub '${BaseStackName}-KeyPairName'
   PyramidProcessesSecurityGroup:
     Value: !Ref PyramidProcessesSecurityGroup
     Description: Security Group for Pyramid instances' internal communication
-    Export:
-      Name: !Sub '${BaseStackName}-PyramidProcessesSecurityGroup'
   PyramidRole:
     Value: !Ref PyramidRole
     Description: IAM Role for instances launched from this stack
-    Export:
-      Name: !Sub '${BaseStackName}-PyramidRole'
   PyramidInstanceProfile:
     Value: !Ref PyramidInstanceProfile
     Description: IAM Instance Profile for instances launched from this stack
-    Export:
-      Name: !Sub '${BaseStackName}-PyramidInstanceProfile'
   MountTargetSecurityGroup:
     Value: !Ref MountTargetSecurityGroup
     Description: Security Group for EFS Mount Targets
-    Export:
-      Name: !Sub '${BaseStackName}-MountTargetSecurityGroup'
   IMDBFileSystem:
     Value: !GetAtt CentralInstance.Outputs.IMDBFileSystem
     Description: EFS file system ID for the In-Memory database
-    Export:
-      Name: !Sub '${BaseStackName}-IMDBFileSystem'
   SharedFileSystem:
     Value: !Ref SharedFileSystem
     Description: EFS file system ID for the shared file system across the deployment
-    Export:
-      Name: !Sub '${BaseStackName}-SharedFileSystem'
   RepositoryDatabaseAddress:
     Value: !Ref RDSAddress
     Description: Repository database address
-    Export:
-      Name: !Sub '${BaseStackName}-RDSAddress'
   RepositoryDatabasePort:
     Value: !Ref RDSPort
     Description: Repository database port
-    Export:
-      Name: !Sub '${BaseStackName}-RDSPort'
   RepositoryDatabaseUsername:
     Value: !Ref RDSUser
     Description: Repository database user name
-    Export:
-      Name: !Sub '${BaseStackName}-RDSUser'
-  RepositoryDatabasePassword:
+  RepositoryDatabasePasswordARN:
     Value: !Ref RDSPasswordSecret
-    Description: Indicate RDS Password in Secrets Manager
-    Export:
-      Name: !Sub '${BaseStackName}-RDSPassword-Secret-ARN'
+    Description: RDS Password in Secrets Manager
   RepositoryDatabaseName:
     Value: !Ref RDSName
     Description: Repository database schema name
-    Export:
-      Name: !Sub '${BaseStackName}-RDSName'
   InitialUsername:
     Value: !Ref InitialUsername
     Description: Initial Pyramid user name
-    Export:
-      Name: !Sub '${BaseStackName}-InitialUsername'
-  InitialPassword:
-    Value: !Ref InitialUserPassword
-    Description: Initial Pyramid user password
-    Export:
-      Name: !Sub '${BaseStackName}-InitialUserPassword'
+  InitialUserPasswordARN:
+    Value: !Ref InitialUserPasswordSecret
+    Description: Initial Pyramid user password in Secrets Manager
