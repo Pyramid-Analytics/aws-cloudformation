@@ -1,63 +1,170 @@
 AWSTemplateFormatVersion: 2010-09-09
 Description: >-
-  Backs up a Pyramid deployment - repository database and EFS file systems - to S3.
-  This stack can be deleted afterwards, as the S3 bucket is retained.
+  Restores a Pyramid deployment - repository database and EFS file systems - from S3.
 Metadata:
   'AWS::CloudFormation::Interface':
     ParameterGroups:
       - Label:
-          default: Backup configuration
+          default: Deployment backup being upgraded from
+        Parameters:
+          - BackupS3BucketAndFolder
+      - Label:
+          default: Calling Stack and values
         Parameters:
           - BaseStackName
-          - BucketName
-          - BucketFolder
+          - PyramidRole
+          - PyramidInstanceProfile
+          - SharedFileSystemId
+          - PyramidProcessesSecurityGroup
+          - MountTargetSecurityGroup
       - Label:
-          default: Instance configuration
+          default: Destination Repository Database Service
+        Parameters:
+          - RDSAddress
+          - RDSPort
+          - RDSUser
+          - RDSPassword
+          - RDSName
+      - Label:
+          default: Working Instance configuration
         Parameters:
           - LatestAmiId
           - Subnet
           - KeyPairName
           - RunOnce
     ParameterLabels:
-      BucketName:
-        default: Bucket to backup to. Optional - if left blank, a new bucket will be created.
-      BucketFolder:
-        default: Optional. Folder within bucket to backup to. Date-timestamp folder will be created under this.
+      BackupS3BucketAndFolder:
+        default: S3 path to a Pyramid backup
       BaseStackName:
-        default: Base Stack of the Pyramuid deployment to be backed up
-      KeyPairName:
-        default: Key pair name
+        default: Base Stack Name being deployed into
+      PyramidRole:
+        default: Deployment Pyramid Role
+      PyramidInstanceProfile:
+        default: Deployment PyramidInstanceProfile
+      SharedFileSystemId:
+        default: Deployment SharedFileSystemId
+      PyramidProcessesSecurityGroup:
+        default: Deployment PyramidProcessesSecurityGroup
+      MountTargetSecurityGroup:
+        default: Deployment MountTargetSecurityGroup
+      RDSAddress:
+        default: Existing PostgreSQL RDS domain name
+      RDSPort:
+        default: RDS database port
+      RDSUser:
+        default: RDS database user name
+      RDSPassword:
+        default: RDS database password
+      RDSName:
+        default: Repository database name
       LatestAmiId:
         default: Latest Amazon Linux 2 AMI
       Subnet:
         default: Subnet within the deployment VPC to run the instance in
+      KeyPairName:
+        default: Key pair name
       RunOnce:
         default: Run and stop
 Parameters:
+  BackupS3BucketAndFolder:
+    Description: >-
+      S3 path to a Pyramid backup
+    Type: String
+    MinLength: '5'
+    MaxLength: '1000'
+    AllowedPattern: '^(?=^.{5,1000}$)[-_a-zA-Z0-9/\=()]*$'
+    ConstraintDescription: >-
+      Min 5 characters. First character must be a letter. Must contain only letters, digits, '/', '-', '_', '=', '*' or parentheses.
+  BaseStackName:
+    Description: Base Stack Name
+    Type: String
+    MinLength: '5'
+    AllowedPattern: '^(?=^.{5,255}$)[-_a-zA-Z0-9/\=()]*$'
+  RDSAddress:
+    Description: >-
+      Domain/Address of an existing Postgres RDS service
+    Type: String
+    MinLength: '8'
+    MaxLength: '128'
+    AllowedPattern: '[a-zA-Z][-_a-zA-Z0-9\.]*'
+    ConstraintDescription: >-
+      Min 8 characters. First character must be a letter. Must contain only letters, digits, '.', '-' or underscores.
+  RDSUser:
+    Description: >-
+      Master user name for the RDS database. Min 5 characters. It can contain
+      only alphanumeric characters and underscores.
+    Type: String
+    MinLength: '5'
+    MaxLength: '64'
+    AllowedPattern: '[-_a-zA-Z0-9]*'
+    ConstraintDescription: >-
+      Min 5 characters. Can contain only alphanumeric characters, minus and
+      underscores.
+  RDSPassword:
+    Description: >-
+      Master password for the RDS database. Min 8 characters. Can contain only
+      alphanumeric characters, minus and underscores.
+    Type: String
+    MinLength: '8'
+    MaxLength: '64'
+    NoEcho: 'true'
+    AllowedPattern: '[-_a-zA-Z0-9]*'
+    ConstraintDescription: >-
+      Min 8 characters. Can contain only alphanumeric characters, minus and
+      underscores.
+  RDSPort:
+    Description: RDS Port
+    Type: Number
+    Default: '5432'
+    MinValue: '1024'
+    ConstraintDescription: Port number must be higher than 1024
+  RDSName:
+    Description: Repository database name in the RDS service.
+    Type: String
+    Default: pyramid
+    MinLength: '6'
+    MaxLength: '64'
+    AllowedPattern: '[a-zA-Z][-_a-zA-Z0-9]*'
+    ConstraintDescription: >-
+      Min 6 characters. Must begin with a letter and contain only alphanumeric
+      characters, minus and underscores.
   LatestAmiId:
     Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
     Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-ebs'
     Description: SSM Parameter for Latest Amazon Linux 2 AMI
-  BaseStackName:
-    Description: Base StackName to backup
-    Type: String
-    MinLength: '1'
-    MaxLength: '32'
-    AllowedPattern: '[-_a-zA-Z0-9]*'
+  Subnet:
+    Description: >-
+      Subnet within the VPC of the Pyramid deployment to run the instance
+    Type: 'AWS::EC2::Subnet::Id'
     ConstraintDescription: Required
-  BucketName:
-    Description: Bucket to backup to
+  KeyPairName:
+    Description: >-
+      Name of an existing EC2 key pair, which allows you to securely connect to
+      your instance after it launches.
+    Type: 'AWS::EC2::KeyPair::KeyName'
+    ConstraintDescription: Required
+  PyramidProcessesSecurityGroup:
+    Description: >-
+      Common Security Group for Pyramid processes
+    Type: 'AWS::EC2::SecurityGroup::Id'
+    ConstraintDescription: Required
+  MountTargetSecurityGroup:
+    Description: >-
+      Security Group to connect to Pyramid deployment shared EFS
+    Type: 'AWS::EC2::SecurityGroup::Id'
+    ConstraintDescription: Required
+  PyramidInstanceProfile:
+    Description: >-
+      To run the instance.
     Type: String
-    Default: ''
-    MaxLength: '64'
-    AllowedPattern: '[-a-z0-9]*'
-    ConstraintDescription: Optional. If entered, requires lowercase alphanumeric and '-'
-  BucketFolder:
-    Description: Folder within bucket to backup to. Date-timestamp folder will be created under this.
+  PyramidRole:
+    Description: >-
+      To run the instance.
     Type: String
-    MaxLength: '64'
-    AllowedPattern: '[-_a-zA-Z0-9/=]*'
-    ConstraintDescription: Optional
+  SharedFileSystemId:
+    Description: >-
+      To run the instance.
+    Type: String
   RunOnce:
     Description: >-
       Run the instance start scripts and stop.
@@ -66,17 +173,6 @@ Parameters:
     AllowedValues:
       - true
       - false
-    ConstraintDescription: Required
-  KeyPairName:
-    Description: >-
-      Name of an existing EC2 key pair, which allows you to securely connect to
-      your instance after it launches.
-    Type: 'AWS::EC2::KeyPair::KeyName'
-    ConstraintDescription: Required
-  Subnet:
-    Description: >-
-      Subnet within the VPC of the Pyramid deployment to run the instance
-    Type: 'AWS::EC2::Subnet::Id'
     ConstraintDescription: Required
 Rules:
   KeyPairsNotEmpty:
@@ -87,13 +183,6 @@ Rules:
               - ''
         AssertDescription: All key pair parameters must not be empty
 Conditions:
-  CreateS3Bucket: !Equals
-   - !Ref BucketName
-   - ''
-  IncludeBucketFolder: !Not
-    - !Equals
-      - !Ref BucketFolder
-      - ''
   TerminateInstance: !Equals
    - !Ref RunOnce
    - 'true'
@@ -108,110 +197,41 @@ Resources:
       Timeout: '1800'
       Count: 1
 
-  ValueFunc:
-    Type: AWS::Lambda::Function
-    Properties:
-      Code:
-        ZipFile: >
-          var r = require('cfn-response');
-          var m = new Date();
-          var dateString =
-              m.getUTCFullYear() + "-" +
-              ("0" + (m.getUTCMonth()+1)).slice(-2) + "-" +
-              ("0" + m.getUTCDate()).slice(-2) + "-" +
-              ("0" + m.getUTCHours()).slice(-2) + "-" +
-              ("0" + m.getUTCMinutes()).slice(-2) + "-" +
-              ("0" + m.getUTCSeconds()).slice(-2);
-          exports.handler = function(ev, ctx) {
-            ev.ResourceProperties.Time = dateString;
-            r.send(ev, ctx, r.SUCCESS, ev.ResourceProperties);
-          }; 
-      Handler: index.handler
-      Runtime: nodejs12.x
-      Timeout: 30
-      Role: !GetAtt ValueFunctionExecutionRole.Arn
-
-  ValueFunctionExecutionRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal: { Service: [ lambda.amazonaws.com ] }
-            Action: sts:AssumeRole
-      Policies:
-        - PolicyName: 
-            Fn::Sub: "value-custom-res-${AWS::StackName}-${AWS::Region}"
-          PolicyDocument:
-            Version: 2012-10-17
-            Statement:
-              - Effect: Allow
-                Action:
-                  - logs:CreateLogGroup
-                  - logs:CreateLogStream
-                  - logs:PutLogEvents
-                Resource: "arn:aws:logs:*:*:*"
-              - Effect: Allow
-                Action: cloudformation:DescribeStacks
-                Resource: "arn:aws:cloudformation:*:*:*"
-
-  GetTimeThisTime:
-    Type: Custom::Value
-    Properties:
-      ServiceToken: !GetAtt ValueFunc.Arn
-
-  S3Bucket:
-    Type: 'AWS::S3::Bucket'
-    Condition: CreateS3Bucket
-    Properties:
-      AccessControl: BucketOwnerFullControl
-    DeletionPolicy: Retain
-
-  BackupManagedPolicy:
+  RestoreManagedPolicy:
     Type: 'AWS::IAM::ManagedPolicy'
     Properties:
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
-          - Sid: S3
+          - Sid: S3GetObject
             Effect: Allow
             Action:
-              - 's3:*'
+              - 's3:GetObject'
             Resource:
               - !Join
                 - ''
                 - - 'arn:'
                   - !Ref 'AWS::Partition'
                   - ':s3:::'
-                  - !If
-                    - CreateS3Bucket
-                    - !Ref S3Bucket
-                    - !Ref BucketName
+                  - !Ref BackupS3BucketAndFolder
                   - '/*'
+          - Sid: S3ListBucket
+            Effect: Allow
+            Action:
+              - 's3:ListBucket'
+            Resource:
               - !Join
                 - ''
                 - - 'arn:'
                   - !Ref 'AWS::Partition'
                   - ':s3:::'
-                  - !If
-                    - CreateS3Bucket
-                    - !Ref S3Bucket
-                    - !Ref BucketName
-          - Sid: SSMGetParameters
-            Effect: Allow
-            Action:
-              - 'ssm:GetParameters'
-              - 'ssm:GetParametersByPath'
-            Resource:
-              - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/Pyramid/${BaseStackName}/*'
-              - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/Pyramid/${BaseStackName}'
+                  - !Select [0, !Split ["/", !Ref BackupS3BucketAndFolder]]
       Roles:
-        - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/PyramidRole:1}}'
+        - !Ref PyramidRole
 
-  BackupInstance:
+  RestoreInstance:
     Type: 'AWS::EC2::Instance'
-    DependsOn: BackupManagedPolicy
+    DependsOn: RestoreManagedPolicy
     Metadata:
       'AWS::CloudFormation::Init':
         configSets:
@@ -220,7 +240,7 @@ Resources:
             - 01_setupCfnHup
             - 02_config-amazon-cloudwatch-agent
             - 03_restart_amazon-cloudwatch-agent
-            - BackupPyramid
+            - RestorePyramid
           UpdateEnvironment:
             - 02_config-amazon-cloudwatch-agent
             - 03_restart_amazon-cloudwatch-agent
@@ -251,8 +271,8 @@ Resources:
               content: !Sub |
                 [cfn-auto-reloader-hook]
                 triggers=post.update
-                path=Resources.PyramidInstance.Metadata.AWS::CloudFormation::Init.02_config-amazon-cloudwatch-agent
-                action=/opt/aws/bin/cfn-init -v --stack ${AWS::StackId} --resource BackupInstance--region ${AWS::Region} --configsets UpdateEnvironment
+                path=Resources.RestoreInstance.Metadata.AWS::CloudFormation::Init.02_config-amazon-cloudwatch-agent
+                action=/opt/aws/bin/cfn-init -v --stack ${AWS::StackId} --resource RestoreInstance --region ${AWS::Region} --configsets UpdateEnvironment
                 runas=root
               mode: '000400'
               owner: root
@@ -286,7 +306,7 @@ Resources:
                           {
                             "file_path": "/var/log/cfn-ini*.log",
                             "log_group_name": "pyramid/${BaseStackName}",
-                            "log_stream_name": "{instance_id}-backup/cf-init",
+                            "log_stream_name": "{instance_id}-restore/cf-init",
                             "timestamp_format": "%Y-%m-%d %H:%M:%S,%f"
                           }
                         ]
@@ -302,7 +322,7 @@ Resources:
             02_start_service:
               command: /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
 
-        BackupPyramid:
+        RestorePyramid:
           packages:
             yum:
               # installed with EFS
@@ -513,17 +533,20 @@ Resources:
               group: root
 
 
-            /usr/src/pyramid/backup-to-s3:
+            /usr/src/pyramid/restore-from-s3:
               content: |
                 #!/bin/bash
-                label=$1
-                baseStackName=$2
-                subnet=$3
-                mtSecurityGroup=$4
-                sharedFileSystemEFS=$5
-                region=$6
-                bucketName=$7
-                bucketFolder=${8:-}
+                baseStackName=${1}
+                bucketAndFolder=${2}
+                subnet=${3}
+                mtSecurityGroup=${4}
+                sharedFileSystemEFS=${5}
+                rdsAddress=${6}
+                rdsPort=${7}
+                rdsUsername=${8}
+                rdsPassword=${9}
+                rdsName=${10}
+                region=${11}
 
                 set -o errexit
 
@@ -533,105 +556,79 @@ Resources:
                     --efsId $sharedFileSystemEFS \
                     --region $region
 
-                rdsAddress=`aws ssm get-parameter --name "/Pyramid/$baseStackName/RepositoryDatabaseAddress" --region $region --output text | cut -f 7`
-                rdsPort=`aws ssm get-parameter --name "/Pyramid/$baseStackName/RepositoryDatabasePort" --region $region --output text | cut -f 7`
-                rdsName=`aws ssm get-parameter --name "/Pyramid/$baseStackName/RepositoryDatabaseName" --region $region --output text | cut -f 7`
-                rdsUsername=`aws ssm get-parameter --name "/Pyramid/$baseStackName/RepositoryDatabaseUsername" --region $region --output text | cut -f 7`
-
-                rdsPassword=`aws secretsmanager get-secret-value --secret-id /Pyramid/$baseStackName/RepositoryDatabasePassword --region $region --output text | cut -f 4`
+                echo "Synching backup in s3://$bucketAndFolder to EFS $sharedFileSystemEFS"
+                # dump s3 into the shared file system
+                aws s3 sync --no-progress s3://$bucketAndFolder/ /mnt/pyramid
 
                 if [ ! -d /mnt/pyramid/repoBackup ] ; then
-                  mkdir -p /mnt/pyramid/repoBackup
+                  echo "No /mnt/pyramid/repoBackup directory. Exiting..."
+                  exit 1
                 fi
-                echo "backing up $rdsName on service $rdsAddress"
-                # dump the repository into the shared file system
+
+                # get the latest dump file
+                dumpFile=`ls -t1 /mnt/pyramid/repoBackup/*.dump |  tail -n 1`
+
+                if [[ -z "${dumpFile}" ]] ; then
+                  echo "No *.dump files in /mnt/pyramid/repoBackup directory. Exiting..."
+                  exit 1
+                fi
+
+                echo "restoring $dumpFile to database $rdsName on service $rdsAddress"
+
+                # create a new database and restore the repository dump into it
                 export PGPASSWORD=$rdsPassword
-                pg_dump -F c -U $rdsUsername -h $rdsAddress -p $rdsPort $rdsName > "/mnt/pyramid/repoBackup/$baseStackName-repository-$label.dump"
+                createdb -U $rdsUsername -h $rdsAddress -p $rdsPort $rdsName
 
-                # catch the 2020-13 release approach of having an EFS volume per IMDB
-                # dump each IMDB file system to s3
-                ssmParams=`aws ssm get-parameters-by-path --path "/Pyramid/$baseStackName" --recursive --region $region --output text`
-                # looking for SSM parameters of the forms:
-                #    '/Pyramid/$baseStackName/${AWS::StackName}/IMDBFileSystem'
-                while read line ; do
-                  # name is cut -f 1
-                  name=`echo $line | cut -d " " -f 5`
-                  endPortion=`echo $name | cut -d '/' -f 5`
+                # exclude extensions
+                pg_restore -l -F c -U pgadmin -h $rdsAddress -p $rdsPort $dumpFile | grep -v "EXTENSION" > /tmp/ignore_pg_extensions
 
-                  # echo "<$name> **** <$endPortion>"
-                  if [[ "${endPortion}" == "IMDBFileSystem" ]] ; then
-                    # value is cut -f 3
-                    fileSystemId=`echo $line | cut -d " " -f 7`
-                    # echo "fileSystemId - $fileSystemId"
-                    /usr/src/pyramid/mnt-efs.sh \
-                      --mountPoint /mnt/pyramid-imdb/$fileSystemId \
-                      --subnet $subnet \
-                      --securityGroup $mtSecurityGroup \
-                      --efsId $fileSystemId \
-                      --region $region
+                # Compressed. No Owner. No privileges
+                pg_restore -F c -O -x -L /tmp/ignore_pg_extensions -U $rdsUsername -h $rdsAddress -p $rdsPort -d $rdsName $dumpFile
 
-                    mkdir -p /mnt/pyramid/imdb/$fileSystemId
-                    echo "copying $fileSystemId to $sharedFileSystemEFS /imdb/$fileSystemId"
-                    cp -p -R /mnt/pyramid-imdb/$fileSystemId/. /mnt/pyramid/imdb/$fileSystemId
-                    umount /mnt/pyramid-imdb/$fileSystemId
-                    rm -rf /mnt/pyramid-imdb/$fileSystemId
-                  fi
-                done <<< "$ssmParams"
-
-                if [ ! -z "${bucketFolder}"] ; then
-                  s3Destination="s3://$bucketName/$bucketFolder/$label"
-                else
-                  s3Destination="s3://$bucketName/$label"
-                fi
-                echo "Synching to $s3Destination"
-                # dump the shared file system to s3
-                aws s3 sync --no-progress /mnt/pyramid/ $s3Destination
-
-                # remove the repo dump from the
-                rm -rf /mnt/pyramid/repoBackup/$baseStackName-repository-$label.dump
                 umount /mnt/pyramid
-                rm -rf /mnt/pyramid
+                # rm -rf /mnt/pyramid
 
               mode: '000755'
               owner: root
               group: root
           commands:
-            1-execute-backup:
-              # backup-to-s3 \
-              #   2020-11-13-15-00-00 \
+            1-execute-restore:
+              # restore-from-s3 \
               #   Pyr-v8 \
+              #   pyr-v8-backup-s3bucket-17f7k5buabvbh/2020-11-11-08-50-14
               #   subnet-01892aa0ff74872e0 \
               #   sg-0ecfc9a157ede67dd \
               #   fs-ec548f19 \
+              #   pyr-v8.cluster-cfave2vnma46.us-east-1.rds.amazonaws.com
+              #   5432
+              #   aName
+              #   aPassword
+              #   aDatabaseName
               #   us-east-1 \
-              #   pyr-v8-backup-s3bucket-17f7k5buabvbh
               command: !Join
                 - ' '
-                - - /usr/src/pyramid/backup-to-s3
-                  - !GetAtt GetTimeThisTime.Time
-                  - !Sub '${BaseStackName}'
-                  - !Sub '${Subnet}'
-                  - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/MountTargetSecurityGroup:1}}'
-                  - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/SharedFileSystem:1}}'
+                - - /usr/src/pyramid/restore-from-s3
+                  - !Ref BaseStackName
+                  - !Ref BackupS3BucketAndFolder
+                  - !Ref Subnet
+                  - !Ref MountTargetSecurityGroup
+                  - !Ref SharedFileSystemId
+                  - !Ref RDSAddress
+                  - !Ref RDSPort
+                  - !Ref RDSUser
+                  - !Ref RDSPassword
+                  - !Ref RDSName
                   - !Sub '${AWS::Region}'
-                  - !If
-                    - CreateS3Bucket
-                    - !Ref S3Bucket
-                    - !Ref BucketName
-                  - !If
-                    - IncludeBucketFolder
-                    - !Ref BucketFolder
-                    - !Ref AWS::NoValue
               ignoreErrors: 'false'
 
     Properties:
       ImageId: !Ref LatestAmiId
-      KeyName: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/KeyPairName:1}}'
-      IamInstanceProfile: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/PyramidInstanceProfile:1}}'
+      KeyName: !Ref KeyPairName
+      IamInstanceProfile: !Ref PyramidInstanceProfile
       InstanceType: t3.medium
       SecurityGroupIds:
-        - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/PyramidProcessesSecurityGroup:1}}'
-        - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/MountTargetSecurityGroup:1}}'
+        - !Ref PyramidProcessesSecurityGroup
+        - !Ref MountTargetSecurityGroup
       SubnetId: !Ref Subnet
       InstanceInitiatedShutdownBehavior: !If
         - TerminateInstance
@@ -669,7 +666,7 @@ Resources:
 
             - '/opt/aws/bin/cfn-init -v  --configsets default --stack '
             - !Ref 'AWS::StackName'
-            - ' --resource BackupInstance--region '
+            - ' --resource RestoreInstance --region '
             - !Ref 'AWS::Region'
             - |+
 
@@ -701,26 +698,4 @@ Resources:
           Value: !Sub '${BaseStackName}'
         - Key: Contents
           Value: Backup
-
-Outputs:
-  BackupBucket:
-    Description: Backup Bucket
-    Value: !If
-      - CreateS3Bucket
-      - !Ref S3Bucket
-      - !Ref BucketName
-
-  BackupPath:
-    Description: Full backup S3 path
-    Value: !Join
-      - ''
-      - - !If
-          - CreateS3Bucket
-          - !Ref S3Bucket
-          - !Ref BucketName
-        - !If
-          - IncludeBucketFolder
-          - !Sub "/${BucketFolder}/"
-          - '/'
-        - !GetAtt GetTimeThisTime.Time
 
