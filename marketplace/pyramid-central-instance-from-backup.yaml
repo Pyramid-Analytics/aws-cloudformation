@@ -30,9 +30,10 @@ Metadata:
           - RDSPassword
           - RDSName
       - Label:
-          default: Deployment being upgraded from
+          default: Existing data
         Parameters:
           - BackupS3BucketAndFolder
+          - InitializeRepository
  
     ParameterLabels:
       BaseStackName:
@@ -69,6 +70,8 @@ Metadata:
         default: Initial Pyramid User password
       BackupS3BucketAndFolder:
         default: S3 path to a Pyramid backup
+      InitializeRepository:
+        default: If not restoring and using an existing database, initialize the Pyramid Repository database
 Parameters:
   BaseStackName:
     Description: Base Stack Name
@@ -235,7 +238,14 @@ Parameters:
     MaxLength: '1000'
     AllowedPattern: '^$|^(?=^.{5,255}$)[-_a-zA-Z0-9/\=()]*$'
     ConstraintDescription: >-
-      Min 5 characters. First character must be a letter. Must contain only letters, digits, '/', '-', '_', '=', '*' or parentheses.
+      Optional. Otherwise min 5 characters. First character must be a letter. Must contain only letters, digits, '/', '-', '_', '=', '*' or parentheses.
+  InitializeRepository:
+    Description: If not restoring and using an existing database, initialize the Pyramid Repository database. false assumes database name exists
+    Type: String
+    Default: true
+    AllowedValues:
+      - true
+      - false
 Rules:
   KeyPairsNotEmpty:
     Assertions:
@@ -262,6 +272,9 @@ Conditions:
     - !Equals 
       - !Ref BackupS3BucketAndFolder
       - ''
+  InitializeRepositoryCondition: !And
+    - !Not [!Condition RestoreFromBackup]
+    - !Equals [!Ref InitializeRepository, true]
 
 Resources:
   PyramidRole:
@@ -607,6 +620,39 @@ Resources:
       EFSId: !Ref SharedFileSystem
       Region: !Ref 'AWS::Region'
 
+  RestoreManagedPolicy:
+    Type: 'AWS::IAM::ManagedPolicy'
+    Condition: RestoreFromBackup
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: S3GetObject
+            Effect: Allow
+            Action:
+              - 's3:GetObject'
+            Resource:
+              - !Join
+                - ''
+                - - 'arn:'
+                  - !Ref 'AWS::Partition'
+                  - ':s3:::'
+                  - !Ref BackupS3BucketAndFolder
+                  - '/*'
+          - Sid: S3ListBucket
+            Effect: Allow
+            Action:
+              - 's3:ListBucket'
+            Resource:
+              - !Join
+                - ''
+                - - 'arn:'
+                  - !Ref 'AWS::Partition'
+                  - ':s3:::'
+                  - !Select [0, !Split ["/", !Ref BackupS3BucketAndFolder]]
+      Roles:
+        - !Ref PyramidRole
+
   RDSPasswordSecret:
     Type: 'AWS::SecretsManager::Secret'
     Properties:
@@ -641,31 +687,31 @@ Resources:
       LogGroupName: !Sub "pyramid/${BaseStackName}"
       RetentionInDays: 30
 
-  RestoreFromBackup:
-    Type: 'AWS::CloudFormation::Stack'
-    DependsOn: RDSPasswordSecret
-    Properties:
-      TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-13-update-2/pyramid-restore-repository-from-s3.yaml
-      Parameters:
-        BaseStackName: !Ref BaseStackName
-        BackupS3BucketAndFolder: !Ref BackupS3BucketAndFolder
-        SharedFileSystemId: !Ref SharedFileSystem
-        PyramidProcessesSecurityGroup: !Ref PyramidProcessesSecurityGroup
-        MountTargetSecurityGroup: !Ref MountTargetSecurityGroup
-        PyramidRole: !Ref PyramidRole
-        PyramidInstanceProfile: !Ref PyramidInstanceProfile
-        RDSAddress: !Ref RDSAddress
-        RDSPort: !Ref RDSPort
-        RDSName: !Ref RDSName
-        RDSUser: !Ref RDSUser
-        RDSPassword: !Sub '{{resolve:secretsmanager:/Pyramid/${BaseStackName}/RepositoryDatabasePassword}}'
-        KeyPairName: !Ref KeyPairName
-        Subnet: !Ref Subnet
+  # RestoreFromBackup:
+  #   Type: 'AWS::CloudFormation::Stack'
+  #   DependsOn: RDSPasswordSecret
+  #   Properties:
+  #     TemplateURL: >-
+  #       https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-13-update-2/pyramid-restore-repository-from-s3.yaml
+  #     Parameters:
+  #       BaseStackName: !Ref BaseStackName
+  #       BackupS3BucketAndFolder: !Ref BackupS3BucketAndFolder
+  #       SharedFileSystemId: !Ref SharedFileSystem
+  #       PyramidProcessesSecurityGroup: !Ref PyramidProcessesSecurityGroup
+  #       MountTargetSecurityGroup: !Ref MountTargetSecurityGroup
+  #       PyramidRole: !Ref PyramidRole
+  #       PyramidInstanceProfile: !Ref PyramidInstanceProfile
+  #       RDSAddress: !Ref RDSAddress
+  #       RDSPort: !Ref RDSPort
+  #       RDSName: !Ref RDSName
+  #       RDSUser: !Ref RDSUser
+  #       RDSPassword: !Sub '{{resolve:secretsmanager:/Pyramid/${BaseStackName}/RepositoryDatabasePassword}}'
+  #       KeyPairName: !Ref KeyPairName
+  #       Subnet: !Ref Subnet
 
   CentralInstance:
     Type: 'AWS::CloudFormation::Stack'
-    DependsOn: RestoreFromBackup
+    DependsOn: RDSPasswordSecret
     Properties:
       TemplateURL: >-
         https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-13-update-2/pyramid-single-instance.yaml
@@ -685,11 +731,15 @@ Resources:
         IMDBFileSystemOption: newExternal
         SharedFileSystemId: !Ref SharedFileSystem
         MountTargetSecurityGroup: !Ref MountTargetSecurityGroup
+        BackupS3BucketAndFolder: !Ref BackupS3BucketAndFolder
         AssignPublicIP: true
         InstallProxy: true
         PyramidRole: !Ref PyramidRole
         PyramidInstanceProfile: !Ref PyramidInstanceProfile
-        RepositoryType: currentremote
+        RepositoryType: !If
+          - InitializeRepositoryCondition
+          - newremote
+          - currentremote
         RDSAddress: !Ref RDSAddress
         RDSPort: !Ref RDSPort
         RDSName: !Ref RDSName

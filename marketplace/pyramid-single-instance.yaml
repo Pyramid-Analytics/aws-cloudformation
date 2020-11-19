@@ -29,6 +29,7 @@ Metadata:
           - MountTargetSecurityGroup
           - IMDBFileSystemOption
           - RunOnce
+          - BackupS3BucketAndFolder
       - Label:
           default: Repository Database configuration
         Parameters:
@@ -81,6 +82,8 @@ Metadata:
         default: Security Group for EFS access
       RunOnce:
         default: Run once and terminate
+      BackupS3BucketAndFolder:
+        default: S3 bucket and optional path to a Pyramid backup
       InstallProxy:
         default: Install nginx as a proxy to the Pyramid web server
       SharedFileSystemId:
@@ -156,6 +159,14 @@ Parameters:
       - true
       - false
     ConstraintDescription: Required
+  BackupS3BucketAndFolder:
+    Description: >-
+      S3 path to a Pyramid backup
+    Type: String
+    MaxLength: '1000'
+    AllowedPattern: '^$|(?=^.{5,1000}$)[a-zA-Z][-_a-zA-Z0-9/\=()]*$'
+    ConstraintDescription: >-
+      Optional. Otherwise min 5 characters. First character must be a letter. Must contain only letters, digits, '/', '-', '_', '=', '*' or parentheses.
   InstallProxy:
     Description: >-
       Install nginx as a proxy to the Pyramid web server.
@@ -994,7 +1005,9 @@ Resources:
                 echo "Not yet deployed IMDBs in EFS: ${EFSImdbGUIDs}"
 
                 EFSImdbGUIDsSize=${#EFSImdbGUIDs[@]}
-                if [[ EFSImdbGUIDsSize > 0 ]] ; then 
+                echo "Number of Not yet deployed IMDBs in EFS: ${EFSImdbGUIDsSize}"
+
+                if [[ $EFSImdbGUIDsSize > 0 ]] ; then 
                   GUIDToDeploy=${EFSImdbGUIDs[0]}
                   echo "Using existing GUID directory for IMDB: $GUIDToDeploy. Containing:"
                   ls -l $tempMountPoint/imdb/$GUIDToDeploy
@@ -1047,6 +1060,74 @@ Resources:
                   --overwrite \
                   --region $region
 
+
+              mode: '000755'
+              owner: root
+              group: root
+
+            /usr/src/pyramid/restore-from-s3:
+              content: |
+                #!/bin/bash
+                baseStackName=${1}
+                bucketAndFolder=${2}
+                subnet=${3}
+                mtSecurityGroup=${4}
+                sharedFileSystemEFS=${5}
+                rdsAddress=${6}
+                rdsPort=${7}
+                rdsUsername=${8}
+                rdsPassword=${9}
+                rdsName=${10}
+                region=${11}
+                clearOldServers=${12:-true}
+
+                set -o errexit
+
+                /usr/src/pyramid/mnt-efs.sh \
+                    --mountPoint /mnt/pyramid-backup \
+                    --subnet $subnet \
+                    --securityGroup $mtSecurityGroup \
+                    --efsId $sharedFileSystemEFS \
+                    --region $region
+
+                echo "Synching backup in s3://$bucketAndFolder to EFS $sharedFileSystemEFS"
+                # dump s3 into the shared file system
+                aws s3 sync --no-progress s3://$bucketAndFolder/ /mnt/pyramid-backup
+
+                if [ ! -d /mnt/pyramid-backup/repoBackup ] ; then
+                  echo "No /mnt/pyramid-backup/repoBackup directory. Exiting..."
+                  exit 1
+                fi
+
+                # get the latest dump file
+                dumpFile=`ls -t1 /mnt/pyramid-backup/repoBackup/*.dump |  tail -n 1`
+
+                if [[ -z "${dumpFile}" ]] ; then
+                  echo "No *.dump files in /mnt/pyramid-backup/repoBackup directory. Exiting..."
+                  exit 1
+                fi
+
+                echo "restoring $dumpFile to database $rdsName on service $rdsAddress"
+
+                # create a new database and restore the repository dump into it
+                export PGPASSWORD=$rdsPassword
+                createdb -U $rdsUsername -h $rdsAddress -p $rdsPort $rdsName
+
+                # exclude extensions
+                pg_restore -l -F c -U $rdsUsername -h $rdsAddress -p $rdsPort $dumpFile | grep -v "EXTENSION" > /tmp/ignore_pg_extensions
+
+                # Compressed. No Owner. No privileges
+                pg_restore -F c -O -x -L /tmp/ignore_pg_extensions -U $rdsUsername -h $rdsAddress -p $rdsPort -d $rdsName $dumpFile
+
+                if [ "${clearOldServers}" == "true" ] ; then
+                  echo "Deleting server_instances"
+                  psql -U $rdsUsername -h $rdsAddress -p $rdsPort -d $rdsName <<EOF
+                delete from server_instances;
+                EOF
+                fi
+
+                umount /mnt/pyramid-backup
+                rm -rf /mnt/pyramid-backup
 
               mode: '000755'
               owner: root
@@ -1144,14 +1225,49 @@ Resources:
             0-update-chrome dependencies:
               command: yum update nss -y
               ignoreErrors: 'false'
-            1-install:
+            1-execute-restore:
+              test: !Join
+                - ''
+                - - '[ -n "'
+                  - !Ref BackupS3BucketAndFolder
+                  - '" ]'
+              # restore-from-s3 \
+              #   Pyr-v8 \
+              #   pyr-v8-backup-s3bucket-17f7k5buabvbh/2020-11-11-08-50-14
+              #   subnet-01892aa0ff74872e0 \
+              #   sg-0ecfc9a157ede67dd \
+              #   fs-ec548f19 \
+              #   pyr-v8.cluster-cfave2vnma46.us-east-1.rds.amazonaws.com
+              #   5432
+              #   aName
+              #   aPassword
+              #   aDatabaseName
+              #   us-east-1 \
+              #   true
+              command: !Join
+                - ' '
+                - - /usr/src/pyramid/restore-from-s3
+                  - !Ref BaseStackName
+                  - !Ref BackupS3BucketAndFolder
+                  - !Ref Subnet
+                  - !Ref MountTargetSecurityGroup
+                  - !Ref SharedFileSystemId
+                  - !Ref RDSAddress
+                  - !Ref RDSPort
+                  - !Ref RDSUser
+                  - !Ref RDSPassword
+                  - !Ref RDSName
+                  - !Sub '${AWS::Region}'
+                  - true
+              ignoreErrors: 'false'
+            2-install:
               cwd: /usr/src/pyramid
               command: "for i in Pyramid*.run; do /usr/src/pyramid/$i --mode unattended --optionfile /usr/src/pyramid/pyramid-unattended-install.ini; done"
               ignoreErrors: 'false'
-            2-cleanup:
+            3-cleanup:
               command: "rm /usr/src/pyramid/pyramid-unattended-install.ini && rm -f /tmp/pyr*.log && rm -f /tmp/bit*.log"
               ignoreErrors: 'false'
-            3-mount-shared-fs:
+            4-mount-shared-fs:
               command: !Join
                 - ' '
                 - - '/usr/src/pyramid/mnt-efs.sh --mountPoint /mnt/pyramid --subnet'
@@ -1164,9 +1280,6 @@ Resources:
                   - '--region'
                   - !Ref AWS::Region
               ignoreErrors: 'false'
-            # 4-ensure-shared-fs-ownership:
-            #   command: "chown pyramid:pyramid /mnt/pyramid"
-            #   ignoreErrors: 'false'
             5-mount-IMDB-fs:
               test: !Join
                 - ''
