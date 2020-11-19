@@ -342,13 +342,6 @@ Conditions:
   CurrentRepositoryTypeCondition: !Equals
     - !Ref RepositoryType
     - currentremote
-  #RemoteRepositoryTypeCondition: !Not
-  #  - !Equals
-  #    - !Ref RepositoryType
-  #    - newlocal
-  #UseRDSPasswordInSecretsManager: !Equals
-  #  - !Ref RDSPassword
-  #  - 'useRDSPasswordInSecretsManager'
   TerminateInstance: !Equals
    - !Ref RunOnce
    - 'true'
@@ -413,110 +406,16 @@ Resources:
       Timeout: '1800'
       Count: 1
 
-  # IMDBFileSystem:
-  #   Type: 'AWS::EFS::FileSystem'
-  #   Condition: CreateExternalIMDB
-  #   DeletionPolicy: Retain
-  #   UpdateReplacePolicy: Retain
-  #   Properties:
-  #     BackupPolicy:
-  #       Status: ENABLED
-  #     Encrypted: true
-  #     FileSystemTags:
-  #       - Key: Name
-  #         Value: !Sub '${BaseStackName}-${AWS::StackName}-pyramid-IMDB'
-  #     FileSystemPolicy:
-  #       Version: "2012-10-17"
-  #       Statement:
-  #         - Sid: Allow administration
-  #           Effect: Allow
-  #           Action:
-  #             - "elasticfilesystem:Client*"
-  #           Principal:
-  #             AWS:
-  #               - !Sub 'arn:aws:iam::${AWS::AccountId}:root'
-  #               - !Sub 'arn:aws:iam::${AWS::AccountId}:role/${PyramidRole}'
-  #     KmsKeyId: !GetAtt IMDBFileSystemKey.Arn
-
-  # IMDBFileSystemKey:
-  #   Type: 'AWS::KMS::Key'
-  #   Condition: CreateExternalIMDB
-  #   DeletionPolicy: Retain
-  #   UpdateReplacePolicy: Retain
-  #   Properties:
-  #     KeyPolicy:
-  #       Version: 2012-10-17
-  #       Id: !Sub '${BaseStackName}-${AWS::StackName}-pyramid-imdb-fs-key'
-  #       Statement:
-  #         - Sid: Allow administration of the key
-  #           Effect: Allow
-  #           Principal:
-  #             AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
-  #           Action:
-  #             - 'kms:*'
-  #           Resource: '*'
-
-  # PyramidIMDBFileSystemManagedPolicy:
-  #   Type: 'AWS::IAM::ManagedPolicy'
-  #   Condition: NotInternalIMDB
-  #   Properties:
-  #     PolicyDocument:
-  #       Version: '2012-10-17'
-  #       Statement:
-  #         - Sid: IMDBFileSystemMountTargets
-  #           Effect: Allow
-  #           Action:
-  #             - 'elasticfilesystem:DescribeMountTargets'
-  #             - 'elasticfilesystem:CreateMountTarget'
-  #           Resource:
-  #             - !Join
-  #               - ''
-  #               - - "arn:aws:elasticfilesystem:"
-  #                 - !Ref AWS::Region
-  #                 - ':'
-  #                 - !Ref AWS::AccountId
-  #                 - ':file-system/'
-  #                 - !If
-  #                   - CreateExternalIMDB
-  #                   - !Ref IMDBFileSystem
-  #                   - !Ref IMDBExternalFileSystemId
-  #     Roles:
-  #       - !Ref PyramidRole
-
-  # IMDBMountTargetResource:
-  #   Type: 'AWS::EFS::MountTarget'
-  #   Condition: NotInternalIMDB
-  #   Properties:
-  #     FileSystemId: !If
-  #       - CreateExternalIMDB
-  #       - !Ref IMDBFileSystem
-  #       - !Ref IMDBExternalFileSystemId
-  #     SubnetId: !Ref Subnet
-  #     SecurityGroups:
-  #       - !Ref MountTargetSecurityGroup
-
-  # IMDBFileSystemSSM:
-  #   Condition: CreateExternalIMDB
-  #   Type: AWS::SSM::Parameter
-  #   Properties:
-  #     Name: !Sub '/Pyramid/${BaseStackName}/${AWS::StackName}/IMDBFileSystem'
-  #     Type: String
-  #     Value: !Ref IMDBFileSystem
-  #     Description: EFS id for added IMDB
-  #     Tags:
-  #       StackName: !Sub '${BaseStackName}'
-  #       Vendor: Pyramid
-
   PyramidInstance:
     Type: 'AWS::EC2::Instance'
     Metadata:
       'AWS::CloudFormation::Init':
         configSets:
           default:
+            - EnableAmazonLinuxExtraPackages
             - 01_setupCfnHup
             - 02_config-amazon-cloudwatch-agent
             - 03_restart_amazon-cloudwatch-agent
-            - EnableAmazonLinuxExtraPackages
             - InstallPyramid
             - !If
               - InstallNginx
@@ -525,6 +424,15 @@ Resources:
           UpdateEnvironment:
             - 02_config-amazon-cloudwatch-agent
             - 03_restart_amazon-cloudwatch-agent
+
+        EnableAmazonLinuxExtraPackages:
+          packages:
+            yum:
+              amazon-efs-utils: []
+              amazon-cloudwatch-agent: []
+          commands:
+            enable_nginx_R_EPEL:
+              command: "amazon-linux-extras enable nginx1 R3.4 epel postgresql10 && yum clean metadata"
 
         # Cfn-hup setting, it is to monitor the change of metadata.
         # When there is change in the contents of json file in the metadata section, cfn-hup will call cfn-init to restart the AmazonCloudWatchAgent.
@@ -576,26 +484,32 @@ Resources:
                       "files": {
                         "collect_list": [
                           {
-                            "file_path": "/var/log/cfn-ini*.log",
-                            "log_group_name": "pyramid/${BaseStackName}",
+                            "file_path": "/var/log/cfn-init.log",
+                            "log_group_name": "/pyramid/${BaseStackName}",
                             "log_stream_name": "{instance_id}-${InstancePurpose}/cf-init",
                             "timestamp_format": "%Y-%m-%d %H:%M:%S,%f"
                           },
                           {
+                            "file_path": "/var/log/cfn-init-output.log",
+                            "log_group_name": "/pyramid/${BaseStackName}",
+                            "log_stream_name": "{instance_id}-${InstancePurpose}/cf-init-output",
+                            "timestamp_format": "%Y-%m-%d %H:%M:%S,%f"
+                          },
+                          {
                             "file_path": "/var/log/cloud-*.log",
-                            "log_group_name": "pyramid/${BaseStackName}",
+                            "log_group_name": "/pyramid/${BaseStackName}",
                             "log_stream_name": "{instance_id}-${InstancePurpose}/cloud-init",
                             "timestamp_format": "%Y-%m-%d %H:%M:%S,%f"
                           },
                            {
                             "file_path": "/tmp/*.log",
-                            "log_group_name": "pyramid/${BaseStackName}",
+                            "log_group_name": "/pyramid/${BaseStackName}",
                             "log_stream_name": "{instance_id}-${InstancePurpose}/installers",
                             "timestamp_format": "%Y-%m-%d %H:%M:%S,%f"
                           },
                           {
                             "file_path": "/opt/Pyramid/log/*.log",
-                            "log_group_name": "pyramid/${BaseStackName}",
+                            "log_group_name": "/pyramid/${BaseStackName}",
                             "log_stream_name": "{instance_id}-${InstancePurpose}/pyramid-logs",
                             "timestamp_format": "%Y-%m-%d %H:%M:%S,%f"
                           }
@@ -611,14 +525,6 @@ Resources:
               command: /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a stop
             02_start_service:
               command: /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
-
-        EnableAmazonLinuxExtraPackages:
-          packages:
-            yum:
-              amazon-efs-utils: []
-          commands:
-            enable_nginx_R_EPEL:
-              command: "amazon-linux-extras enable nginx1 R3.4 epel postgresql10 && yum clean metadata"
 
         InstallPyramid:
           packages:
@@ -1303,6 +1209,11 @@ Resources:
                   - !Ref SharedFileSystemId
                   - "--region"
                   - !Ref 'AWS::Region'
+                  - "--initialize"
+                  - !If
+                    - CurrentRepositoryTypeCondition
+                    - false
+                    - true
               ignoreErrors: 'false'
 
         InstallNginx:
@@ -1384,9 +1295,6 @@ Resources:
               Content-Transfer-Encoding: 7bit
               Content-Disposition: attachment; filename="userdata.txt"
               #!/bin/bash -xe
-
-              # install CloudWatch
-              rpm -Uvh https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm
 
               # run cfn-init
 
