@@ -315,10 +315,13 @@ Resources:
                 Effect: Allow
                 Action:
                   - 'ssm:GetParameter'
+                  - 'ssm:PutParameter'
+                  - 'ssm:GetParametersByPath'
                 Resource:
-                  - !Sub >-
-                    arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/Pyramid/${BaseStackName}/*
-              - Effect: Allow
+                  - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/Pyramid/${BaseStackName}/*'
+                  - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/Pyramid/${BaseStackName}'
+              - Sid: DescribeSubnets
+                Effect: Allow
                 Action:
                   - 'ec2:DescribeSubnets'
                 Resource: '*'
@@ -755,17 +758,6 @@ Resources:
         StackName: !Sub '${BaseStackName}'
         Vendor: Pyramid
 
-  IMDBFileSystemSSM:
-    Type: AWS::SSM::Parameter
-    Properties:
-      Name: !Sub '/Pyramid/${BaseStackName}/IMDBFileSystem'
-      Type: String
-      Value: !GetAtt CentralInstance.Outputs.IMDBFileSystem
-      Description: EFS id for IMDB within Central instance
-      Tags:
-        StackName: !Sub '${BaseStackName}'
-        Vendor: Pyramid
-
   SharedFileSystemSSM:
     DependsOn: CentralInstance
     Type: AWS::SSM::Parameter
@@ -892,9 +884,6 @@ Outputs:
   MountTargetSecurityGroup:
     Value: !Ref MountTargetSecurityGroup
     Description: Security Group for EFS Mount Targets
-  IMDBFileSystem:
-    Value: !GetAtt CentralInstance.Outputs.IMDBFileSystem
-    Description: EFS file system ID for the In-Memory database
   SharedFileSystem:
     Value: !Ref SharedFileSystem
     Description: EFS file system ID for the shared file system across the deployment

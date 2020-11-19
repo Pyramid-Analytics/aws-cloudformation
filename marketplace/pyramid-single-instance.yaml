@@ -743,6 +743,44 @@ Resources:
                   return $?
                 }
 
+                mount_efs() {
+                  local efsId=${1}
+                  local mountPoint=${2}
+                  local efsRootDirectory=${3:-/}
+                  local ownership=${4:"pyramid:pyramid"}
+
+                  # ----------------------------------------------------------------------------
+                  # Create mount point directory
+                  # ----------------------------------------------------------------------------
+                  # if the mountPoint directory does not exist
+                  if [ ! -d "${mountPoint}" ] ; then
+                    mkdir -p "${mountPoint}"
+                    chown "${ownership}" "${mountPoint}"
+                  else
+                    # fail if the mountPoint already exists
+                    echo "mountPoint directory ${mountPoint} already exists. exiting..."
+                    exit 1
+                  fi
+
+                  # Mount the EFS volume using the AWS EFS helper
+                  # IAM is used for authentication to EFS
+                  local sleepTime=20
+                  local maxTimes=40
+                  local notificationCount=5
+                  local count=0
+                  while true
+                  do
+                    mount -t efs -o tls,iam $efsId:$efsRootDirectory $mountPoint && break
+                    count=$(( count + 1  ))
+                    if [ "$count" -ge "$maxTimes" ] ; then
+                      echo "Mount did not succeed after ${maxTimes} tries, waiting ${sleepTime} seconds between tries... Exiting"
+                      exit 1
+                    elif  ! (( count % notificationCount )) ; then
+                        echo "Mount did not succeed ...continuing to wait"
+                    fi
+                    sleep $sleepTime
+                  done
+                }
 
                 ##########################################
                 # main script
@@ -777,18 +815,6 @@ Resources:
                   exit 1
                 fi
                 
-                # ----------------------------------------------------------------------------
-                # Create mount point directory
-                # ----------------------------------------------------------------------------
-                # if the mountPoint directory does not exist
-                if [ ! -d "${mountPoint}" ] ; then
-                  mkdir -p "${mountPoint}"
-                  chown "${ownership}" "${mountPoint}"
-                else
-                  # fail if the mountPoint already exists
-                  echo "mountPoint directory ${mountPoint} already exists. exiting..."
-                  exit 1
-                fi
 
                 # create a mount target group if needed
                 create_mount_target $efsId $subnet $securityGroup $region
@@ -799,56 +825,22 @@ Resources:
 
                 if [[ "$efsRootDirectory" != "/" ]] ; then
                   echo "Making sure $efsId:$efsRootDirectory exists"
-                  mkdir /tmp/$mountPoint
 
-                  # Mount the EFS volume using the AWS EFS helper
-                  # IAM is used for authentication to EFS
-                  sleepTime=20
-                  maxTimes=40
-                  notificationCount=5
-                  count=0
-                  while true
-                  do
-                    mount -t efs -o tls,iam $efsId /tmp/$mountPoint && break
-                    count=$(( count + 1  ))
-                    if [ "$count" -ge "$maxTimes" ] ; then
-                      echo "Mount did not succeed after ${maxTimes} tries, waiting ${sleepTime} seconds between tries... Exiting"
-                      exit 1
-                    elif  ! (( count % notificationCount )) ; then
-                        echo "Mount did not succeed ...continuing to wait"
-                    fi
-                    sleep $sleepTime
-                  done
+                  tmpMountPoint="/tmp${mountPoint}"
+                  mount_efs $efsId $tmpMountPoint
 
-                  if [ ! -d /tmp/$mountPoint/$efsRootDirectory] ; then
-                    mkdir -p /tmp/$mountPoint/$efsRootDirectory
-                    chown pyramid:pyramid /tmp/$mountPoint/$efsRootDirectory
+                  if [ ! -d "${tmpMountPoint}${efsRootDirectory}" ] ; then
+                    mkdir -p "${tmpMountPoint}${efsRootDirectory}"
+                    chown pyramid:pyramid "${tmpMountPoint}${efsRootDirectory}"
                   fi
 
-                  umount /tmp/$mountPoint
-                  rm -rf /tmp/$mountPoint
+                  umount $tmpMountPoint
+                  rm -rf $tmpMountPoint
                 fi 
 
                 echo "About to mount $efsId:$efsRootDirectory to $mountPoint"
 
-                # Mount the EFS volume using the AWS EFS helper
-                # IAM is used for authentication to EFS
-                sleepTime=20
-                maxTimes=40
-                notificationCount=5
-                count=0
-                while true
-                do
-                  mount -t efs -o tls,iam $efsId:$efsRootDirectory $mountPoint && break
-                  count=$(( count + 1  ))
-                  if [ "$count" -ge "$maxTimes" ] ; then
-                    echo "Mount did not succeed after ${maxTimes} tries, waiting ${sleepTime} seconds between tries... Exiting"
-                    exit 1
-                  elif  ! (( count % notificationCount )) ; then
-                      echo "Mount did not succeed ...continuing to wait"
-                  fi
-                  sleep $sleepTime
-                done
+                mount_efs $efsId $mountPoint $efsRootDirectory
 
                 echo "Mounted EFS $efsId:$efsRootDirectory to $mountPoint"
 
@@ -859,184 +851,203 @@ Resources:
             /usr/src/pyramid/mnt-imdb.sh:
               content: |
                 #!/bin/bash
-                  #
-                  # After installation of an IMDB, move the IMDB files to a
-                  # directory on the shared EFS volume.
-                  #
-                  # Parameters:
-                  # mountPoint=${mountPoint:-/mnt/pyramid-imdb}
-                  # installLocation=${installLocation:-/opt/Pyramid}
-                  # dataLocation=${dataLocation:-/opt/Pyramid/repository}
-                  # baseStackName=
-                  # currentStackName=
+                #
+                # After installation of an IMDB, move the IMDB files to a
+                # directory on the shared EFS volume.
+                #
+                # Parameters:
+                # mountPoint=${mountPoint:-/mnt/pyramid-imdb}
+                # installLocation=${installLocation:-/opt/Pyramid}
+                # dataLocation=${dataLocation:-/opt/Pyramid/repository}
+                # baseStackName=
+                # currentStackName=
 
-                  #
-                  # This script can only run on an AWS instance with Pyramid already installed.
-                  #
-                  
-                  set -o errexit
+                #
+                # This script can only run on an AWS instance with Pyramid already installed.
+                #
+                set -o errexit
 
-                  # ----------------------------------------------------------------------------
-                  # Set and validate parameters
-                  # ----------------------------------------------------------------------------
+                # ----------------------------------------------------------------------------
+                # Set and validate parameters
+                # ----------------------------------------------------------------------------
 
-                  mountPoint=${mountPoint:-/mnt/pyramid-imdb}
-                  installLocation=${installLocation:-/opt/Pyramid}
-                  dataLocation=${dataLocation:-/opt/Pyramid/repository}
-                  baseStackName=
-                  currentStackName=
+                mountPoint=${mountPoint:-/mnt/pyramid-imdb}
+                installLocation=${installLocation:-/opt/Pyramid}
+                dataLocation=${dataLocation:-/opt/Pyramid/repository}
+                baseStackName=
+                currentStackName=
+                initialize=${initialize:-false}
+                ##########################################
+                # main script
 
-                  ##########################################
-                  # main script
-
-                  while [ $# -gt 0 ]; do
-                    if [[ $1 == *"--"* ]]; then
-                      param="${1/--/}"
-                      declare $param="$2"
-                      echo $1 $2 # Optional: to see the parameter:value result
-                      shift
-                    fi
+                while [ $# -gt 0 ]; do
+                  if [[ $1 == *"--"* ]]; then
+                    param="${1/--/}"
+                    declare $param="$2"
+                    echo $1 $2 # Optional: to see the parameter:value result
                     shift
-                  done
-
-                  if [[ -z "${mountPoint}" ]] ; then
-                    echo "mountPoint not set"
-                    exit 1
                   fi
+                  shift
+                done
 
-                  if [[ -z "${installLocation}" ]] ; then
-                    echo "installLocation not set"
-                    exit 1
+                if [[ -z "${mountPoint}" ]] ; then
+                  echo "mountPoint not set"
+                  exit 1
+                fi
+
+                if [[ -z "${efsId}" ]] ; then
+                  echo "efsId not set"
+                  exit 1
+                fi
+
+                if [[ -z "${securityGroup}" ]] ; then
+                  echo "securityGroup not set"
+                  exit 1
+                fi
+
+                if [[ -z "${installLocation}" ]] ; then
+                  echo "installLocation not set"
+                  exit 1
+                fi
+
+                if [[ -z "${dataLocation}" ]] ; then
+                  echo "dataLocation not set"
+                  exit 1
+                fi
+
+                if [[ -z "${baseStackName}" ]] ; then
+                  echo "baseStackName not set"
+                  exit 1
+                fi
+
+                if [[ -z "${currentStackName}" ]] ; then
+                  echo "currentStackName not set"
+                  exit 1
+                fi
+
+                if [[ ! -f "${installLocation}/config.ini" ]] ; then
+                  echo "Pyramid config.ini in ${installLocation} does not exist. exiting..."
+                  exit 1
+                fi
+                if [[ ! -d "${dataLocation}" ]] ; then
+                  echo "Pyramid data-location directory ${dataLocation} does not exist. exiting..."
+                  exit 1
+                fi
+
+                # Single EFS volume now
+                # /mnt/pyramid
+                #   /imdb/<id>
+                #     individual imdata directories
+                #     current list in ssm baseStack/stack/IMDBFileSystem = <id> vs list of imdb/<id>
+                #     if list of imdb/<id> is longer than baseStack/stack/IMDBFileSystem
+                #       use next imdb/<id> -> baseStack/stack/IMDBFileSystem
+                #     else
+                #       create new imdb/<id>
+                #     fs:imdb/<id> to /mnt/pyramid-imdb
+
+                tempMountPoint="/tmp${mountPoint}"
+                echo "mounting efs/imdb to /tmp to check what is there"
+                /usr/src/pyramid/mnt-efs.sh \
+                  --mountPoint $tempMountPoint \
+                  --subnet $subnet \
+                  --securityGroup $securityGroup \
+                  --efsId $efsId \
+                  --region $region
+
+                if [ ! -d $tempMountPoint/imdb ] ; then 
+                  mkdir $tempMountPoint/imdb
+                  chown pyramid:pyramid $tempMountPoint/imdb
+                fi 
+                EFSImdbGUIDs=( $(ls -l $tempMountPoint/imdb | grep '^d' | cut -d " " -f 9) )
+
+                echo "Current IMDBs in EFS: ${EFSImdbGUIDs}"
+
+                # what IMDBs have we already configured for this deployment?
+
+                currentDeploymentImdbGUIDs=()
+
+                ssmParams=`aws ssm get-parameters-by-path --path "/Pyramid/$baseStackName" --recursive --region $region --output text`
+                # looking for SSM parameters of the forms:
+                #    '/Pyramid/$baseStackName/${AWS::StackName}/IMDBFileSystem'
+
+                while read line ; do
+                  name=`echo $line | cut -d " " -f 5`
+                  endPortion=`echo $name | cut -d '/' -f 5`
+
+                  # echo "<$name> **** <$endPortion>"
+                  if [[ "${endPortion}" = "IMDBFileSystem" ]] ; then
+                    fileSystemGUID=`echo $line | cut -d " " -f 7`
+                    currentDeploymentImdbGUIDs+=$fileSystemGUID
                   fi
+                done <<< "$ssmParams"
 
-                  if [[ -z "${dataLocation}" ]] ; then
-                    echo "dataLocation not set"
-                    exit 1
-                  fi
+                echo "Current IMDBs deployed against instances: ${EFSImdbGUIDs}"
 
-                  if [[ -z "${baseStackName}" ]] ; then
-                    echo "baseStackName not set"
-                    exit 1
-                  fi
-
-                  if [[ -z "${currentStackName}" ]] ; then
-                    echo "currentStackName not set"
-                    exit 1
-                  fi
-
-                  if [[ ! -f "${installLocation}/config.ini" ]] ; then
-                    echo "Pyramid config.ini in ${installLocation} does not exist. exiting..."
-                    exit 1
-                  fi
-                  if [[ ! -d "${dataLocation}" ]] ; then
-                    echo "Pyramid data-location directory ${dataLocation} does not exist. exiting..."
-                    exit 1
-                  fi
-
-                  # Single EFS volume now
-                  # /mnt/pyramid
-                  #   /imdb/<id>
-                  #     individual imdata directories
-                  #     current list in ssm baseStack/stack/IMDBFileSystem = <id> vs list of imdb/<id>
-                  #     if list of imdb/<id> is longer than baseStack/stack/IMDBFileSystem
-                  #       use next imdb/<id> -> baseStack/stack/IMDBFileSystem
-                  #     else
-                  #       create new imdb/<id>
-                  #     fs:imdb/<id> to /mnt/pyramid-imdb
-
-                  # mount efs/imdb to /tmp to check what is there
-                  /usr/src/pyramid/mnt-efs.sh \
-                    --mountPoint /tmp/pyramid-imdb \
-                    --subnet $subnet \
-                    --securityGroup $mtSecurityGroup \
-                    --efsId $fileSystemId \
-                    --region $region
-
-                  if [ ! -d /tmp/pyramid-imdb/imdb ] ; then 
-                    mkdir /tmp/pyramid-imdb/imdb
-                    chown pyramid:pyramid /tmp/pyramid-imdb/imdb
-                  fi 
-                  EFSImdbGUIDs=( $(ls -l /tmp/pyramid-imdb | grep '^d' | cut -f 9) )
-
-                  echo "Current IMDBs in EFS: ${EFSImdbGUIDs}"
-
-                  # what IMDBs have we already configured for this deployment?
-
-                  currentDeploymentImdbGUIDs=()
-
-                  ssmParams=`aws ssm get-parameters-by-path --path "/Pyramid/$baseStackName" --recursive --region $region --output text`
-                  # looking for SSM parameters of the forms:
-                  #    '/Pyramid/$baseStackName/${AWS::StackName}/IMDBFileSystem'
-
-                  while read line ; do
-                    name=`echo $line | cut -d " " -f 5`
-                    endPortion=`echo $name | cut -d '/' -f 5`
-
-                    # echo "<$name> **** <$endPortion>"
-                    if [[ "${endPortion}" = "IMDBFileSystem" ]] ; then
-                      fileSystemGUID=`echo $line | cut -d " " -f 7`
-                      currentDeploymentImdbGUIDs+=fileSystemGUID
+                for target in "${currentDeploymentImdbGUIDs[@]}"; do
+                  for i in "${!EFSImdbGUIDs[@]}"; do
+                    if [[ ${EFSImdbGUIDs[i]} = $target ]]; then
+                      unset 'EFSImdbGUIDs[i]'
                     fi
-                  done <<< "$ssmParams"
-
-                  echo "Current IMDBs deployed against instances: ${EFSImdbGUIDs}"
-
-                  for target in "${currentDeploymentImdbGUIDs[@]}"; do
-                    for i in "${!EFSImdbGUIDs[@]}"; do
-                      if [[ ${EFSImdbGUIDs[i]} = $target ]]; then
-                        unset 'EFSImdbGUIDs[i]'
-                      fi
-                    done
                   done
+                done
 
-                  echo "Not yet deployed IMDBs in EFS: ${EFSImdbGUIDs}"
+                echo "Not yet deployed IMDBs in EFS: ${EFSImdbGUIDs}"
 
-                  EFSImdbGUIDsSize=${#EFSImdbGUIDs[@]}
-                  if [[ EFSImdbGUIDsSize > 0 ]] ; then 
-                    GUIDToDeploy=${EFSImdbGUIDs[0]}
-                    echo "Using existing GUID directory for IMDB: $GUIDToDeploy. Containing:"
-                    ls -l /tmp/pyramid-imdb/imdb/$GUIDToDeploy
-                    newGUID=1
-                  else
-                    GUIDToDeploy=`date +"%Y-%m-%d-%H-%m-%s%z"`
-                    newGUID=0
-                    echo "creating GUID directory for new IMDB: $GUIDToDeploy"
-                    mkdir /tmp/pyramid-imdb/imdb/$GUIDToDeploy
-                    chown pyramid:pyramid /tmp/pyramid-imdb/imdb/$GUIDToDeploy
-                  fi
+                EFSImdbGUIDsSize=${#EFSImdbGUIDs[@]}
+                if [[ EFSImdbGUIDsSize > 0 ]] ; then 
+                  GUIDToDeploy=${EFSImdbGUIDs[0]}
+                  echo "Using existing GUID directory for IMDB: $GUIDToDeploy. Containing:"
+                  ls -l $tempMountPoint/imdb/$GUIDToDeploy
+                  initialize=false
+                else
+                  GUIDToDeploy=`date +"%Y-%m-%d-%H-%m-%s%z"`
+                  echo "creating GUID directory for new IMDB: $GUIDToDeploy"
+                  mkdir $tempMountPoint/imdb/$GUIDToDeploy
+                  chown pyramid:pyramid $tempMountPoint/imdb/$GUIDToDeploy
+                fi
 
-                  umount /tmp/pyramid-imdb
+                umount $tempMountPoint
+                rm -rf $tempMountPoint
 
-                  /usr/src/pyramid/mnt-efs.sh \
-                    --mountPoint $mountPoint \
-                    --subnet $subnet \
-                    --securityGroup $mtSecurityGroup \
-                    --efsId $fileSystemId \
-                    --efsRootDirectory /imdb/$GUIDToDeploy
-                    --region $region
+                echo "mounting $efsId:/imdb/$GUIDToDeploy to $mountPoint"
+                /usr/src/pyramid/mnt-efs.sh \
+                  --mountPoint $mountPoint \
+                  --subnet $subnet \
+                  --securityGroup $securityGroup \
+                  --efsId $efsId \
+                  --efsRootDirectory /imdb/$GUIDToDeploy \
+                  --region $region
 
-                  # Stop the IMDB service
-                  systemctl stop pyramidIMDB
+                # Stop the IMDB service
+                systemctl stop pyramidIMDB
 
-                  # we are going to mount imdata at ${dataLocation}
+                # we are going to mount imdata at ${dataLocation}
 
-                  # If new, Copy current imdata into the EFS volume 
-                  if [[ $newGUID && "$(ls -A ${dataLocation}/imdata)" ]] ; then
-                    cp -p -R $dataLocation/imdata/. $mountPoint
-                    echo "Moved on-instance IMDATA to EFS"
-                  fi
+                # If new, Copy current imdata into the EFS volume 
+                # if [[ $newGUID && "$(ls -A ${dataLocation}/imdata)" ]] ; then
+                if [[ "${initialize}" == "true" ]] ; then
+                  cp -p -R $dataLocation/imdata/. $mountPoint
+                  echo "Initialized IMDB files with on-instance IMDATA"
+                fi
 
-                  # Update the config.ini reference for the IMDB datadirlocal= to the mountPoint
-                  sed -i "s|datadirlocal=.*|datadirlocal=$mountPoint|" "$installLocation/config.ini"
+                # Update the config.ini reference for the IMDB datadirlocal= to the mountPoint
+                sed -i "s|datadirlocal=.*|datadirlocal=$mountPoint|" "$installLocation/config.ini"
 
-                  echo "IMDB files at $mountPoint contain:"
-                  ls -l $mountPoint
+                echo "IMDB files at $mountPoint are:"
+                ls -l $mountPoint
 
-                  # Restart the IMDB service
-                  systemctl start pyramidIMDB
+                # Restart the IMDB service
+                systemctl start pyramidIMDB
 
-                  # create SSM param 
-                  aws ssm put-parameter --name "/Pyramid/$baseStackName/$currentStackName/IMDBFileSystemId"  --value $GUIDToDeploy --region $region
+                # create SSM param 
+                aws ssm put-parameter \
+                  --name "/Pyramid/$baseStackName/$currentStackName/IMDBFileSystemId" \
+                  --type String \
+                  --value $GUIDToDeploy \
+                  --overwrite \
+                  --region $region
+
+
               mode: '000755'
               owner: root
               group: root
@@ -1143,7 +1154,7 @@ Resources:
             3-mount-shared-fs:
               command: !Join
                 - ' '
-                - - '/usr/src/pyramid/mnt-efs.sh --mountPoint /mnt/pyramid/shared --subnet'
+                - - '/usr/src/pyramid/mnt-efs.sh --mountPoint /mnt/pyramid --subnet'
                   -  !Ref Subnet
                   - '--securityGroup'
                   - !Ref MountTargetSecurityGroup
@@ -1167,6 +1178,10 @@ Resources:
               command: !Join
                 - ' '
                 - - "/usr/src/pyramid/mnt-imdb.sh --mountPoint /mnt/pyramid-imdb"
+                  - "--baseStackName"
+                  - !Ref BaseStackName
+                  - "--currentStackName"
+                  - !Ref 'AWS::StackName'
                   - "--subnet"
                   - !Ref Subnet
                   - "--securityGroup"

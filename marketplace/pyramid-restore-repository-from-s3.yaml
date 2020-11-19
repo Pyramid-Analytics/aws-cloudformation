@@ -32,6 +32,7 @@ Metadata:
           - Subnet
           - KeyPairName
           - RunOnce
+          - ClearOldServers
     ParameterLabels:
       BackupS3BucketAndFolder:
         default: S3 path to a Pyramid backup
@@ -65,6 +66,8 @@ Metadata:
         default: Key pair name
       RunOnce:
         default: Run and stop
+      ClearOldServers:
+        default: Remove old servers after restore
 Parameters:
   BackupS3BucketAndFolder:
     Description: >-
@@ -168,6 +171,15 @@ Parameters:
   RunOnce:
     Description: >-
       Run the instance start scripts and stop.
+    Type: String
+    Default: true
+    AllowedValues:
+      - true
+      - false
+    ConstraintDescription: Required
+  ClearOldServers:
+    Description: >-
+      Remove old server references after restore.
     Type: String
     Default: true
     AllowedValues:
@@ -547,6 +559,7 @@ Resources:
                 rdsPassword=${9}
                 rdsName=${10}
                 region=${11}
+                clearOldServers=${12:-true}
 
                 set -o errexit
 
@@ -580,10 +593,17 @@ Resources:
                 createdb -U $rdsUsername -h $rdsAddress -p $rdsPort $rdsName
 
                 # exclude extensions
-                pg_restore -l -F c -U pgadmin -h $rdsAddress -p $rdsPort $dumpFile | grep -v "EXTENSION" > /tmp/ignore_pg_extensions
+                pg_restore -l -F c -U $rdsUsername -h $rdsAddress -p $rdsPort $dumpFile | grep -v "EXTENSION" > /tmp/ignore_pg_extensions
 
                 # Compressed. No Owner. No privileges
                 pg_restore -F c -O -x -L /tmp/ignore_pg_extensions -U $rdsUsername -h $rdsAddress -p $rdsPort -d $rdsName $dumpFile
+
+                if [ "${clearOldServers}" == "true" ] ; then
+                  echo "Deleting server_instances"
+                  psql -U $rdsUsername -h $rdsAddress -p $rdsPort -d $rdsName <<EOF
+                delete from server_instances;
+                EOF
+                fi
 
                 umount /mnt/pyramid
                 # rm -rf /mnt/pyramid
@@ -605,6 +625,7 @@ Resources:
               #   aPassword
               #   aDatabaseName
               #   us-east-1 \
+              #   true
               command: !Join
                 - ' '
                 - - /usr/src/pyramid/restore-from-s3
@@ -619,6 +640,7 @@ Resources:
                   - !Ref RDSPassword
                   - !Ref RDSName
                   - !Sub '${AWS::Region}'
+                  - !Ref ClearOldServers
               ignoreErrors: 'false'
 
     Properties:

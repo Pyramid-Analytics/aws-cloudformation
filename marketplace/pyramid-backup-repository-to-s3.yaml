@@ -24,7 +24,7 @@ Metadata:
       BucketFolder:
         default: Optional. Folder within bucket to backup to. Date-timestamp folder will be created under this.
       BaseStackName:
-        default: Base Stack of the Pyramuid deployment to be backed up
+        default: Base Stack of the Pyramid deployment to be backed up
       KeyPairName:
         default: Key pair name
       LatestAmiId:
@@ -572,11 +572,21 @@ Resources:
 
                     mkdir -p /mnt/pyramid/imdb/$fileSystemId
                     echo "copying $fileSystemId to $sharedFileSystemEFS /imdb/$fileSystemId"
-                    cp -p -R /mnt/pyramid-imdb/$fileSystemId/. /mnt/pyramid/imdb/$fileSystemId
+                    # cp -p -R /mnt/pyramid-imdb/$fileSystemId/. /mnt/pyramid/imdb/$fileSystemId
+                    # --remove-source-files \
+                    rsync \
+                      --chown=pyramid:pyramid \
+                      /mnt/pyramid-imdb/$fileSystemId /mnt/pyramid/imdb/$fileSystemId
                     umount /mnt/pyramid-imdb/$fileSystemId
                     rm -rf /mnt/pyramid-imdb/$fileSystemId
                   fi
                 done <<< "$ssmParams"
+
+                # deal with an EFS volume without a /shared directory
+                if [ ! -d /mnt/pyramid/shared ] ; then
+                  mkdir /mnt/pyramid/shared
+                  find /mnt/pyramid/ -type f -maxdepth 1  -exec cp -t /mnt/pyramid/shared/ {} +
+                fi
 
                 if [ ! -z "${bucketFolder}"] ; then
                   s3Destination="s3://$bucketName/$bucketFolder/$label"
@@ -584,8 +594,10 @@ Resources:
                   s3Destination="s3://$bucketName/$label"
                 fi
                 echo "Synching to $s3Destination"
-                # dump the shared file system to s3
-                aws s3 sync --no-progress /mnt/pyramid/ $s3Destination
+                # dump EFS to s3
+                aws s3 sync --no-progress /mnt/pyramid/shared $s3Destination/shared
+                aws s3 sync --no-progress /mnt/pyramid/imdb $s3Destination/imdb
+                aws s3 sync --no-progress /mnt/pyramid/repoBackup $s3Destination/repoBackup
 
                 # remove the repo dump from the
                 rm -rf /mnt/pyramid/repoBackup/$baseStackName-repository-$label.dump
@@ -669,7 +681,7 @@ Resources:
 
             - '/opt/aws/bin/cfn-init -v  --configsets default --stack '
             - !Ref 'AWS::StackName'
-            - ' --resource BackupInstance--region '
+            - ' --resource BackupInstance --region '
             - !Ref 'AWS::Region'
             - |+
 
