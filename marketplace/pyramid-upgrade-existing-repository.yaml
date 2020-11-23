@@ -22,18 +22,6 @@ Metadata:
   'AWS::CloudFormation::Interface':
     ParameterGroups:
       - Label:
-          default: Deployment being upgraded from
-        Parameters:
-          - BackupS3BucketAndFolder
-      - Label:
-          default: Existing Repository Database Service
-        Parameters:
-          - RDSAddress
-          - RDSPort
-          - RDSUser
-          - RDSPassword
-          - RDSName
-      - Label:
           default: New Pyramid Analytics Central instance
         Parameters:
           - AMIID
@@ -43,6 +31,21 @@ Metadata:
           - KeyPairName
           - HTTPAccessCIDR
           - AllowSSHSecurityGroup
+      - Label:
+          default: Existing Repository Database Service
+        Parameters:
+          - RDSAddress
+          - RDSPort
+          - RDSUser
+          - RDSPassword
+          - RDSName
+      - Label:
+          default: Deployment being upgraded from
+        Parameters:
+          - BackupS3BucketAndFolder
+          - InitializeRepository
+          - InitialUsername
+          - InitialUserPassword
     ParameterLabels:
       BackupS3BucketAndFolder:
         default: S3 path to a Pyramid backup
@@ -70,6 +73,12 @@ Metadata:
         default: HTTP/HTTPS CIDR
       AllowSSHSecurityGroup:
         default: SSH Security Group ID
+      InitializeRepository:
+        default: Initialize Repository?
+      InitialUsername:
+        default: Initial Pyramid user name
+      InitialUserPassword:
+        default: Initial Pyramid User password
 Parameters:
   BackupS3BucketAndFolder:
     Description: >-
@@ -88,6 +97,16 @@ Parameters:
     Description: ID of your existing VPC for deployment.
     Type: 'AWS::EC2::VPC::Id'
     ConstraintDescription: Required
+  VPCCIDR:
+    AllowedPattern: >-
+      ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/([0-9]|[1-2][0-9]|3[0-2]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/x
+    Description: >-
+      Allowed CIDR block for HTTP and HTTPS traffic. Please set CIDR to
+      x.x.x.x/32 to allow one specific IP address access, 0.0.0.0/0 to allow all
+      IP addresses access, or another CIDR range.
+    Type: String
+    MinLength: '9'
   Subnet:
     Description: Subnet for instance. Accessible by HTTP/S from browsers.
     Type: 'AWS::EC2::Subnet::Id'
@@ -224,45 +243,6 @@ Parameters:
     MinLength: '8'
     NoEcho: 'True'
     Type: String
-Mappings:
-  AWSAMIRegionMap:
-    us-east-1:
-      # 2020.13.100
-      '64': ami-029d57f27fac5962a
-    us-east-2:
-      '64': XXX
-    us-west-1:
-      '64': XXX
-    us-west-2:
-      '64': XXX
-    ca-central-1:
-      '64': XXX
-    eu-central-1:
-      '64': XXX
-    eu-west-1:
-      '64': XXX
-    eu-west-2:
-      '64': XXX
-    eu-west-3:
-      '64': XXX
-    eu-north-1:
-      '64': XXX
-    ap-southeast-1:
-      '64': XXX
-    ap-southeast-2:
-      '64': XXX
-    ap-south-1:
-      '64': XXX
-    ap-northeast-1:
-      '64': XXX
-    ap-northeast-2:
-      '64': XXX
-    sa-east-1:
-      '64': XXX
-    us-gov-east-1:
-      '64': XXX
-    us-gov-west-1:
-      '64': XXX
 Rules:
   SubnetsNotEmpty:
     Assertions:
@@ -429,10 +409,7 @@ Resources:
       TemplateURL: >-
         https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-13-update-1/pyramid-central-instance.yaml
       Parameters:
-        AMIID: !FindInMap 
-          - AWSAMIRegionMap
-          - !Ref 'AWS::Region'
-          - '64'
+        AMIID: !Ref AMIIID
         BaseStackName: !Ref 'AWS::StackName'
         InstanceType: !Ref InstanceType
         VPCID: !Ref VPCID
