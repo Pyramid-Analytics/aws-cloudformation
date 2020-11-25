@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: 2010-09-09
 Description: >-
-  Backs up a Pyramid deployment - repository database and EFS file systems - to S3.
+  Backs up a Pyramid Marketplace CloudFormation deployment (stack) - repository database and EFS file systems - to S3.
   This stack can be deleted afterwards, as the S3 bucket is retained.
 Metadata:
   'AWS::CloudFormation::Interface':
@@ -32,7 +32,7 @@ Metadata:
       Subnet:
         default: Subnet within the deployment VPC to run the instance in
       RunOnce:
-        default: Run and stop
+        default: Run backup and stop
 Parameters:
   LatestAmiId:
     Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
@@ -104,11 +104,11 @@ Resources:
     Type: 'AWS::CloudFormation::WaitCondition'
     Properties:
       Handle: !Ref InstanceWaitHandle
-      # 30 mins
-      Timeout: '1800'
+      # 5 mins
+      Timeout: '300'
       Count: 1
 
-  ValueFunc:
+  NowFunc:
     Type: AWS::Lambda::Function
     Properties:
       Code:
@@ -129,9 +129,9 @@ Resources:
       Handler: index.handler
       Runtime: nodejs12.x
       Timeout: 30
-      Role: !GetAtt ValueFunctionExecutionRole.Arn
+      Role: !GetAtt NowFunctionExecutionRole.Arn
 
-  ValueFunctionExecutionRole:
+  NowFunctionExecutionRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
@@ -142,7 +142,7 @@ Resources:
             Action: sts:AssumeRole
       Policies:
         - PolicyName: 
-            Fn::Sub: "value-custom-res-${AWS::StackName}-${AWS::Region}"
+            Fn::Sub: "now-custom-res-${AWS::StackName}-${AWS::Region}"
           PolicyDocument:
             Version: 2012-10-17
             Statement:
@@ -159,7 +159,7 @@ Resources:
   GetTimeThisTime:
     Type: Custom::Value
     Properties:
-      ServiceToken: !GetAtt ValueFunc.Arn
+      ServiceToken: !GetAtt NowFunc.Arn
 
   S3Bucket:
     Type: 'AWS::S3::Bucket'
@@ -284,8 +284,8 @@ Resources:
                       "files": {
                         "collect_list": [
                           {
-                            "file_path": "/var/log/cfn-ini*.log",
-                            "log_group_name": "pyramid/${BaseStackName}",
+                            "file_path": "/var/log/cfn-init.log",
+                            "log_group_name": "/pyramid/${BaseStackName}",
                             "log_stream_name": "{instance_id}-backup/cf-init",
                             "timestamp_format": "%Y-%m-%d %H:%M:%S,%f"
                           }
@@ -519,13 +519,14 @@ Resources:
                 label=$1
                 baseStackName=$2
                 subnet=$3
-                mtSecurityGroup=$4
-                sharedFileSystemEFS=$5
-                region=$6
-                bucketName=$7
-                bucketFolder=${8:-}
+                region=$4
+                bucketName=$5
+                bucketFolder=${6:-}
 
                 set -o errexit
+
+                mtSecurityGroup=`aws ssm get-parameter --name "/Pyramid/$baseStackName/MountTargetSecurityGroup" --region $region --output text | cut -f 7`
+                sharedFileSystemEFS=`aws ssm get-parameter --name "/Pyramid/$baseStackName/SharedFileSystem" --region $region --output text | cut -f 7`
 
                 /usr/src/pyramid/mnt-efs.sh \
                     --subnet $subnet \
@@ -613,8 +614,6 @@ Resources:
               #   2020-11-13-15-00-00 \
               #   Pyr-v8 \
               #   subnet-01892aa0ff74872e0 \
-              #   sg-0ecfc9a157ede67dd \
-              #   fs-ec548f19 \
               #   us-east-1 \
               #   pyr-v8-backup-s3bucket-17f7k5buabvbh
               command: !Join
@@ -623,8 +622,6 @@ Resources:
                   - !GetAtt GetTimeThisTime.Time
                   - !Sub '${BaseStackName}'
                   - !Sub '${Subnet}'
-                  - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/MountTargetSecurityGroup:1}}'
-                  - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/SharedFileSystem:1}}'
                   - !Sub '${AWS::Region}'
                   - !If
                     - CreateS3Bucket
@@ -716,14 +713,14 @@ Resources:
 
 Outputs:
   BackupBucket:
-    Description: Backup Bucket
+    Description: Backup S3 Bucket
     Value: !If
       - CreateS3Bucket
       - !Ref S3Bucket
       - !Ref BucketName
 
   BackupPath:
-    Description: Full backup S3 path
+    Description: S3 backup path
     Value: !Join
       - ''
       - - !If
