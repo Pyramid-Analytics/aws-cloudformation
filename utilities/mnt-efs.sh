@@ -16,12 +16,18 @@
 # subnet
 # securityGroup
 # region
+# baseStackName
 #
 # So minimal use is:
 # mnt-efs.sh \
 #   --efsId fs-24334234 \
 #   --subnet subnet-055fb67972f8052d2 \
 #   --securityGroup sg-0667a5ea299a0e03c \
+#   --region us-east-1
+# or
+# mnt-efs.sh \
+#   --baseStackName Pyramid-2020-14-existing-db-4 \
+#   --subnet subnet-055fb67972f8052d2 \
 #   --region us-east-1
 ##
 # This script can only run on an AWS instance. It must run as root, and be
@@ -41,6 +47,7 @@ ownership=${ownership:-pyramid:pyramid}
 subnet=
 securityGroup=
 region=
+baseStackName=
 
 wait_for_mount_target_availability() {
   local mountTarget=${1}
@@ -174,24 +181,34 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-if [[ -z "${efsId}" ]] ; then
-  echo "efsId not set"
-  exit 1
-fi
-
 if [[ -z "${subnet}" ]] ; then
   echo "subnet not set"
-  exit 1
-fi
-
-if [[ -z "${securityGroup}" ]] ; then
-  echo "securityGroup not set"
   exit 1
 fi
 
 if [[ -z "${region}" ]] ; then
   echo "region not set"
   exit 1
+fi
+
+if [[ -z "${efsId}" ]] ; then
+  if [[ ! -z "${baseStackName}" ]] ; then
+    efsId=`aws ssm get-parameter --name "/Pyramid/$baseStackName/SharedFileSystem" --region $region --output text | cut -f 7`
+  fi
+  if [[ -z "${efsId}" ]] ; then
+    echo "efsId not set"
+    exit 1
+  fi
+fi
+
+if [[ -z "${securityGroup}" ]] ; then
+  if [[ ! -z "${baseStackName}" ]] ; then
+    securityGroup=`aws ssm get-parameter --name "/Pyramid/$baseStackName/MountTargetSecurityGroup" --region $region --output text | cut -f 7`
+  fi
+  if [[ -z "${efsId}" ]] ; then
+    echo "securityGroup not set"
+    exit 1
+  fi
 fi
 
 

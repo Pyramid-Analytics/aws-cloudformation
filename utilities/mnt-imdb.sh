@@ -53,6 +53,11 @@ if [[ -z "${subnet}" ]] ; then
   exit 1
 fi
 
+if [[ -z "${region}" ]] ; then
+  echo "region not set"
+  exit 1
+fi
+
 if [[ -z "${mountPoint}" ]] ; then
   echo "mountPoint not set"
   exit 1

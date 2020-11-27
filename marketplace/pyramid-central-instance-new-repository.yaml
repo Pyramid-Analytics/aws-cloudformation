@@ -1,9 +1,9 @@
 AWSTemplateFormatVersion: 2010-09-09
 Description: >-
   Deploys a single instance of Pyramid 2020 with all services and a new Aurora
-  Postgres cluster for the repository database. To be deployed in a public
-  subnet, as the Pyramid web server is available on port 80. You will be billed
-  for the AWS resources used if you create a stack from this template. 
+  Postgres cluster for the repository database. Option to restore from a Pyramid backup.
+  To be deployed in a public subnet, as the Pyramid web server is available on port 80.
+  You will be billed for the AWS resources used if you create a stack from this template. 
 Metadata:
   'AWS::CloudFormation::Interface':
     ParameterGroups:
@@ -237,7 +237,8 @@ Mappings:
     us-east-1:
       # 2020.13.100
       # '64': ami-029d57f27fac5962a
-      '64': ami-0ed515b164c0f6945
+      # 2020.14.027
+      '64': ami-007162be6c7cd5892
     us-east-2:
       '64': XXX
     us-west-1:
@@ -343,7 +344,7 @@ Resources:
     Type: 'AWS::CloudFormation::Stack'
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-13-update-2/pyramid-central-instance-from-backup.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14/pyramid-central-instance-ssm.yaml
       Parameters:
         AMIID: !FindInMap 
           - AWSAMIRegionMap
