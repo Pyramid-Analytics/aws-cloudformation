@@ -122,7 +122,7 @@ if [ ! -d $tempMountPoint/imdb ] ; then
   mkdir $tempMountPoint/imdb
   chown pyramid:pyramid $tempMountPoint/imdb
 fi 
-EFSImdbGUIDs=( $(ls -l $tempMountPoint/imdb | grep '^d' | cut -d " " -f 9) )
+EFSImdbGUIDs=( $(ls -l $tempMountPoint/imdb | grep '^d' | sed 's/\s\s*/ /g' |  cut -d " " -f 9) )
 
 echo "Current IMDBs in EFS: ${EFSImdbGUIDs}"
 
@@ -140,7 +140,7 @@ while read line ; do
 
   # echo "<$name> **** <$endPortion>"
   if [[ "${endPortion}" = "IMDBFileSystem" ]] ; then
-    fileSystemGUID=`echo $line | cut -d " " -f 7`
+    fileSystemGUID=`echo $line | sed 's/\s\s*/ /g' | cut -d " " -f 7`
     currentDeploymentImdbGUIDs+=$fileSystemGUID
   fi
 done <<< "$ssmParams"

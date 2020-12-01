@@ -344,15 +344,6 @@ Resources:
     Properties:
       Roles:
         - !Ref PyramidRole
-  
-  # CidrOfVpc:
-  #   Type: 'Custom::CidrOfVpcLambda'
-  #   Properties:
-  #     ServiceToken:
-  #       Fn::ImportValue:
-  #         !Sub "${BaseStackName}-CIDRofVPC-ARN"
-  #     VpcId: !Ref VPCID
-  #     Region: !Ref 'AWS::Region'
 
   WebAccessSecurityGroup:
     Type: 'AWS::EC2::SecurityGroup'
@@ -373,6 +364,7 @@ Resources:
           FromPort: 443
           ToPort: 443
           CidrIp: !Ref HTTPAccessCIDR
+
   PyramidProcessesSecurityGroup:
     Type: 'AWS::EC2::SecurityGroup'
     Properties:
@@ -704,6 +696,17 @@ Resources:
         StackName: !Sub '${BaseStackName}'
         Vendor: Pyramid
 
+  WebAccessSecurityGroupSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/Pyramid/${BaseStackName}/WebAccessSecurityGroup'
+      Type: String
+      Value: !Ref WebAccessSecurityGroup
+      Description: Security group for web access to instances
+      Tags:
+        StackName: !Sub '${BaseStackName}'
+        Vendor: Pyramid
+
   PyramidRoleSSM:
     Type: AWS::SSM::Parameter
     Properties:
@@ -827,18 +830,30 @@ Resources:
 
   PyramidLogGroup:
     Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
     Properties: 
-      LogGroupName: !Sub "/pyramid/${BaseStackName}"
+      LogGroupName: !Sub '/pyramid/${BaseStackName}'
       RetentionInDays: 30
 
   CentralInstance:
     Type: 'AWS::CloudFormation::Stack'
-    DependsOn: SharedFileSystem
+    DependsOn:
+      - SharedFileSystemSSM
+      - InitialUsernameSSM
+      - InitialUserPasswordARNSSM
+      - RepositoryDatabaseAddressSSM
+      - RepositoryDatabasePortSSM
+      - RepositoryDatabaseNameSSM
+      - RepositoryDatabaseUsernameSSM
+      - RepositoryDatabasePasswordARNSSM
+      - MountTargetSecurityGroupSSM
+      - PyramidInstanceProfileSSM
+      - PyramidRoleSSM
+      - PyramidProcessesSecurityGroupSSM
+      - KeyPairNameSSM
+
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14/pyramid-single-instance.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14/pyramid-single-instance-ssm.yaml
       Parameters:
         AMIID: !Ref AMIID
         BaseStackName: !Ref BaseStackName
@@ -850,27 +865,15 @@ Resources:
           - - !Ref WebAccessSecurityGroup
             - !Ref PyramidProcessesSecurityGroup
             - !Ref MountTargetSecurityGroup
-        KeyPairName: !Ref KeyPairName
         Subnet: !Ref Subnet
         IMDBFileSystemOption: newExternal
-        SharedFileSystemId: !Ref SharedFileSystem
-        MountTargetSecurityGroup: !Ref MountTargetSecurityGroup
         BackupS3BucketAndFolder: !Ref BackupS3BucketAndFolder
         AssignPublicIP: true
         InstallProxy: true
-        PyramidRole: !Ref PyramidRole
-        PyramidInstanceProfile: !Ref PyramidInstanceProfile
         RepositoryType: !If
           - InitializeRepositoryCondition
           - newremote
           - currentremote
-        RDSAddress: !Ref RDSAddress
-        RDSPort: !Ref RDSPort
-        RDSName: !Ref RDSName
-        RDSUser: !Ref RDSUser
-        RDSPassword: !Ref RDSPassword
-        InitialUsername: !Ref InitialUsername
-        InitialUserPassword: !Ref InitialUserPassword
 
 Outputs:
   PyramidPublicURL:
@@ -891,6 +894,9 @@ Outputs:
   KeyPairName:
     Value: !Ref KeyPairName
     Description: Key Pair for instances
+  WebAccessSecurityGroup:
+    Value: !Ref WebAccessSecurityGroup
+    Description: Security Group for Pyramid instances' Web access
   PyramidProcessesSecurityGroup:
     Value: !Ref PyramidProcessesSecurityGroup
     Description: Security Group for Pyramid instances' internal communication

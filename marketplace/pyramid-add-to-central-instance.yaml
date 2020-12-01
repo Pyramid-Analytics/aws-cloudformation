@@ -13,7 +13,6 @@ Metadata:
           - Subnet
           - InstanceType
           - PyramidProcess
-          - IMDBExternalFileSystemId
     ParameterLabels:
       BaseStackName:
         default: Stack Name of base single instance stack
@@ -23,8 +22,6 @@ Metadata:
         default: Instance type
       PyramidProcess:
         default: Pyramid process(es) for instance
-      IMDBExternalFileSystemId:
-        default: EFS Id for an existing IMDB file system
 Parameters:
   Subnet:
     Description: Subnet for instance within VPC of the original single instance Stack
@@ -91,22 +88,13 @@ Parameters:
       - InMemoryDB
       - Nothing
     Default: Everything
-  IMDBExternalFileSystemId:
-    AllowedPattern: '^$|fs-[a-f0-9]{8}'
-    ConstraintDescription: >-
-      Optional. If entered, must begin with 'fs-' and finished with 8 a-f and numeric characters.
-    Default: ''
-    Description: >-
-      EFS volume Id for in-memory database persistence for existing file system.
-    MaxLength: '32'
-    Type: String
 Mappings:
   AWSAMIRegionMap:
     us-east-1:
       # 2020.13.100
       # '64': ami-029d57f27fac5962a
-      # 2020.14.027
-      '64': ami-007162be6c7cd5892
+      # 2020.14.035
+      '64': ami-04708aafb77fcf566
     us-east-2:
       '64': XXX
     us-west-1:
@@ -141,26 +129,23 @@ Mappings:
       '64': XXX
     us-gov-west-1:
       '64': XXX
-
 Conditions:
-  IMDBProcessIncluded: !Or
+  WebAccess: !Or
     - !Equals
       - !Ref PyramidProcess
       - 'Everything'
     - !Equals
       - !Ref PyramidProcess
-      - 'InMemoryDB'
-  CreateExternalIMDB: !And
-    - !Condition IMDBProcessIncluded
+      - 'WebServerAndRouter'
     - !Equals
-      - !Ref IMDBExternalFileSystemId
-      - ''
+      - !Ref PyramidProcess
+      - 'WebServer'
 
 Resources:
   LaunchInstance:
     Type: 'AWS::CloudFormation::Stack'
     Properties:
-      TemplateURL: https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14/pyramid-single-instance-ssm.yaml
+      TemplateURL: https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14/pyramid-single-instance.yaml
       Parameters:
         BaseStackName: !Ref BaseStackName
         AMIID: !FindInMap 
@@ -176,40 +161,17 @@ Resources:
           - ','
           - - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/PyramidProcessesSecurityGroup:1}}'
             - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/MountTargetSecurityGroup:1}}'
-
-        # KeyPairName: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/KeyPairName:1}}'
-
-        # PyramidRole: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/PyramidRole:1}}'
-        # PyramidInstanceProfile: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/PyramidInstanceProfile:1}}'
-
-        # SharedFileSystemId: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/SharedFileSystem:1}}'
-
-        IMDBFileSystemOption: !If
-          - IMDBProcessIncluded
-          - !If
-            - CreateExternalIMDB
-            - newExternal
-            - existingExternal
-          - !Ref AWS::NoValue
-        IMDBExternalFileSystemId: !If
-          - IMDBProcessIncluded
-          - !If
-            - CreateExternalIMDB
-            - !Ref AWS::NoValue
-            - !Ref IMDBExternalFileSystemId
-          - !Ref AWS::NoValue
-
-        # MountTargetSecurityGroup: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/MountTargetSecurityGroup:1}}'
+            - !If
+              - WebAccess
+              - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/WebAccessSecurityGroup:1}}'
+              - !Ref 'AWS::NoValue'
+        InstallProxy: !If
+          - WebAccess
+          - true
+          - false
+        AssignPublicIP: !If
+          - WebAccess
+          - true
+          - false
 
         RepositoryType: currentremote
-
-        # RDSAddress: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/RepositoryDatabaseAddress:1}}'
-        # RDSPort: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/RepositoryDatabasePort:1}}'
-        # RDSName: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/RepositoryDatabaseName:1}}'
-        # RDSUser: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/RepositoryDatabaseUsername:1}}'
-        # RDSPassword: !Sub '{{resolve:secretsmanager:/Pyramid/${BaseStackName}/RepositoryDatabasePassword}}'
-
-        # InitialUsername: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/InitialUsername:1}}'
-        # InitialUserPassword: !Sub '{{resolve:secretsmanager:/Pyramid/${BaseStackName}/InitialUserPassword}}'
-          # Fn::ImportValue:
-          #   !Sub "${BaseStackName}-InitialUserPassword"

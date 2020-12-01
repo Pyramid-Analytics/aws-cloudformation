@@ -4,20 +4,37 @@ bucketAndFolder=${2}
 subnet=${3}
 region=${4}
 clearOldServers=${5:-true}
+  # command: !Join
+  #   - ' '
+  #   - - /usr/src/pyramid/restore-from-s3.sh
+  #     - !Ref BaseStackName
+  #     - !Ref BackupS3BucketAndFolder
+  #     - !Ref Subnet
+  #     - !Sub '${AWS::Region}'
+  #     - true
 
 set -o errexit
+
+echo "Restoring:"
+echo "baseStackName = $baseStackName"
+echo "bucketAndFolder = $bucketAndFolder"
+echo "subnet = $subnet"
+echo "region = $region"
+echo "clearOldServers = $clearOldServers"
 
 sharedFileSystemEFS=`aws ssm get-parameter --name "/Pyramid/$baseStackName/SharedFileSystem" --region $region --output text | cut -f 7`
 if [[ -z "${sharedFileSystemEFS}" ]] ; then
   echo "sharedFileSystemEFS not set"
   exit 1
 fi
+echo "sharedFileSystemEFS = $sharedFileSystemEFS"
 
 mtSecurityGroup=`aws ssm get-parameter --name "/Pyramid/$baseStackName/MountTargetSecurityGroup" --region $region --output text | cut -f 7`
 if [[ -z "${mtSecurityGroup}" ]] ; then
   echo "mtSecurityGroup not set"
   exit 1
 fi
+echo "mtSecurityGroup = $mtSecurityGroup"
 
 /usr/src/pyramid/mnt-efs.sh \
     --mountPoint /mnt/pyramid-backup \
@@ -25,6 +42,12 @@ fi
     --securityGroup $mtSecurityGroup \
     --efsId $sharedFileSystemEFS \
     --region $region
+
+# -mountPoint /mnt/pyramid-backup
+# 	--subnet subnet-01947522cba134c85
+# 	--securityGroup us-east-1
+# 	--efsId true
+# 	--region
 
 echo "Synching backup in s3://$bucketAndFolder to EFS $sharedFileSystemEFS"
 # dump s3 into the shared file system

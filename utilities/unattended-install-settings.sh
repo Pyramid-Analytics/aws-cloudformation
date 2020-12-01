@@ -2,7 +2,7 @@
 baseStackName=${1}
 repositoryType=${2}
 region=${3}
-disableComponents=${4:-none}
+launching=${4:-Everything}
 # - - '/usr/src/pyramid/unattended-install-settings.sh'
 #   - !Ref RepositoryType
 #   - !If
@@ -18,12 +18,43 @@ disableComponents=${4:-none}
 #         - !Ref PyramidProcess
 #     - ''
 
+#   ProcessesToExclude:
+#     Processes:
+#       Router: 'linws,linrte,linte,linimdb,linai'
+#       WebServer: 'linrte,linte,linrtr,linimdb,linai'
+#       WebServerAndRouter: 'linrte,linte,linimdb,linai'
+#       RuntimeEngine: 'linws,linte,linrtr,linimdb,linai'
+#       TaskEngine: 'linws,linrte,linrtr,linimdb,linai'
+#       RuntimeEngineAndTaskEngine: 'linws,linrtr,linimdb,linai'
+#       RuntimeEngineAndAI: 'linws,linte,linrtr,linimdb'
+#       TaskEngineAndAI: 'linws,linrte,linrtr,linimdb'
+#       RuntimeAndTaskEngineAndAI: 'linws,linrtr,linimdb'
+#       AIServer: 'linws,linrte,linte,linrtr,linimdb'
+#       InMemoryDB: 'linws,linrte,linte,linrtr,linai'
+#       Nothing: 'linws,linrte,linte,linrtr,linimdb,linai'
+#       Everything: ''
+
 set -o errexit
+
+declare -A ProcessesToExclude
+ProcessesToExclude[Router]='linws,linrte,linte,linimdb,linai'
+ProcessesToExclude[WebServer]='linrte,linte,linrtr,linimdb,linai'
+ProcessesToExclude[WebServerAndRouter]='linrte,linte,linimdb,linai'
+ProcessesToExclude[RuntimeEngine]='linws,linte,linrtr,linimdb,linai'
+ProcessesToExclude[TaskEngine]='linws,linrte,linrtr,linimdb,linai'
+ProcessesToExclude[RuntimeEngineAndTaskEngine]='linws,linrtr,linimdb,linai'
+ProcessesToExclude[RuntimeEngineAndAI]='linws,linte,linrtr,linimdb'
+ProcessesToExclude[TaskEngineAndAI]='linws,linrte,linrtr,linimdb'
+ProcessesToExclude[RuntimeAndTaskEngineAndAI]='linws,linrtr,linimdb'
+ProcessesToExclude[AIServer]='linws,linrte,linte,linrtr,linimdb'
+ProcessesToExclude[InMemoryDB]='linws,linrte,linte,linrtr,linai'
+ProcessesToExclude[Nothing]='linws,linrte,linte,linrtr,linimdb,linai'
+ProcessesToExclude[Everything]=''
 
 echo "baseStackName=${baseStackName}"
 echo "repositoryType=${repositoryType}"
 echo "region=${region}"
-echo "disableComponents=<${disableComponents}>"
+echo "launching=<${launching}>"
 
 rdsAddress=`aws ssm get-parameter --name "/Pyramid/$baseStackName/RepositoryDatabaseAddress" --region $region --output text | cut -f 7`
 rdsPort=`aws ssm get-parameter --name "/Pyramid/$baseStackName/RepositoryDatabasePort" --region $region --output text | cut -f 7`
@@ -41,8 +72,8 @@ if [[ "${repositoryType}" == "newremote" ]] ; then
 fi
 
 disableComponentsProperty=''
-if [[ "${disableComponents}"  != "none" ]] ; then
-  disableComponentsProperty="disableComponents=${disableComponents}"
+if [[ "${launching}"  != "Everything" ]] ; then
+  disableComponentsProperty="disable-components=${ProcessesToExclude[$launching]}"
 fi
 
 cat >/usr/src/pyramid/pyramid-unattended-install.ini\

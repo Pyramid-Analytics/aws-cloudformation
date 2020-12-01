@@ -221,8 +221,8 @@ Mappings:
     us-east-1:
       # 2020.13.100
       # '64': ami-029d57f27fac5962a
-      # 2020.14.027
-      '64': ami-007162be6c7cd5892
+      # 2020.14.035
+      '64': ami-04708aafb77fcf566
     us-east-2:
       '64': XXX
     us-west-1:
@@ -284,27 +284,164 @@ Rules:
 
 Resources:
 
-  CIDRofVPCLambda:
-    Type: 'AWS::CloudFormation::Stack'
+  # CIDRofVPCLambda:
+  #   Type: 'AWS::CloudFormation::Stack'
+  #   Properties:
+  #     TemplateURL: >-
+  #       https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14/pyramid-cidr-lambda.yaml
+  #     Parameters:
+  #       BaseStackName: !Ref 'AWS::StackName'
+
+  CidrOfVpcRole:
+    Type: 'AWS::IAM::Role'
     Properties:
-      TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-13-update-2/pyramid-cidr-lambda.yaml
-      Parameters:
-        BaseStackName: !Ref 'AWS::StackName'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AmazonEC2ReadOnlyAccess'
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+
+  CidrOfVpcLambda:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Code:
+        ZipFile: |
+          import boto3
+
+          from botocore.exceptions import ClientError
+
+          from urllib.parse import urlencode
+
+          from urllib.request import urlopen, Request, HTTPError, URLError
+
+          import json
+
+          def send_response(event, context, response_status, reason=None,
+          response_data={}):
+              body = {
+                  "Status": response_status,
+                  "PhysicalResourceId": context.log_stream_name,
+                  "StackId": event["StackId"],
+                  "RequestId": event["RequestId"],
+                  "LogicalResourceId": event["LogicalResourceId"],
+              }
+
+              print("Responding: {}".format(response_status))
+
+              if reason:
+                  print(reason)
+                  body["Reason"] = reason
+
+              if response_data:
+                  print(response_data)
+                  body["Data"] = response_data
+
+              body = json.dumps(body).encode("utf-8")
+
+              req = Request(event["ResponseURL"], data=body, headers={
+                  "Content-Length": len(body),
+                  "Content-Type": "",
+              })
+              req.get_method = lambda: "PUT"
+
+              try:
+                  urlopen(req)
+                  return True
+              except HTTPError as e:
+                  print("Failed executing HTTP request: {}".format(e.code))
+                  return False
+              except URLError as e:
+                  print("Failed to reach the server: {}".format(e.reason))
+                  return False
+
+          def get_VPC_CIDR(VpcId, Region):
+              try:
+                  ec2 = boto3.resource("ec2", region_name=Region)
+              except ClientError as e:
+                  return {
+                  "StatusCode" : 400,
+                  "Message" : e.response['Error']['Message']
+              }
+              try:
+                  vpc = ec2.Vpc(VpcId)
+              except ClientError as e:
+                  return {
+                  "StatusCode" : 400,
+                  "Message" : e.response['Error']['Message']
+              }
+
+              print(f"REQUEST for VPC {VpcId}")
+              try:
+                  cidr = vpc.cidr_block
+              except ClientError as e:
+                  return {
+                  "StatusCode" : 400,
+                  "Message" : e.response['Error']['Message']
+              }
+                  
+              if cidr is None:
+                  return {
+                      "StatusCode" : 400,
+                      "Message" : "No CIDR returned"
+                  }
+
+              return {
+                  "StatusCode" : 200,
+                  "VpcId" : VpcId,
+                  "Region" : Region,
+                  "CidrBlock" : cidr,
+                  "Message" : "OK"
+              }
+
+          def handler(event, context):
+              print("RECEIVED")
+              print(event)
+              print(event.get("RequestType"))
+              #print
+              if event.get("RequestType") == "Delete":
+                  return send_response(event, context, "SUCCESS")
+              
+              requestProperties = event.get("ResourceProperties")
+              vpc_id = requestProperties.get("VpcId")
+              region = requestProperties.get("Region")
+                  
+              print(f"VpcId: {vpc_id}, Region: {region}")
+              answer = get_VPC_CIDR(vpc_id, region)
+              print(answer)
+
+              if answer["StatusCode"] == 400:
+                  print(f"FAILED: {answer['Message']}")
+                  return send_response(event, context, "FAILED", reason=answer["Message"])
+
+              print(f"SUCCESS: {answer['CidrBlock']}")
+              return send_response(event, context, "SUCCESS", response_data={
+                      "CidrBlock": answer["CidrBlock"]
+                  }
+              )
+              
+      Runtime: python3.7
+      Handler: index.handler
+      Role: !GetAtt CidrOfVpcRole.Arn
   
   CidrOfVpc:
     Type: 'Custom::CidrOfVpcLambda'
     Properties:
-      ServiceToken: !GetAtt CIDRofVPCLambda.Outputs.CIDRofVPCARN
+      ServiceToken: !GetAtt CidrOfVpcLambda.Arn
       VpcId: !Ref VPCID
       Region: !Ref 'AWS::Region'
 
   CentralInstance:
     Type: 'AWS::CloudFormation::Stack'
-    DependsOn: CIDRofVPCLambda
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14/pyramid-central-instance-ssm.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14/pyramid-central-instance.yaml
       Parameters:
         AMIID: !FindInMap 
           - AWSAMIRegionMap
