@@ -615,7 +615,6 @@ Resources:
   RestoreManagedPolicy:
     Type: 'AWS::IAM::ManagedPolicy'
     Condition: RestoreFromBackup
-    DependsOn: PyramidRole
     Properties:
       PolicyDocument:
         Version: '2012-10-17'

@@ -346,12 +346,12 @@ Resources:
               #   us-east-1 
               command: !Join
                 - ' '
-                - - /usr/src/pyramid/restore-from-s3.sh
+                - - '/usr/src/pyramid/restore-from-s3.sh'
                   - !Ref BaseStackName
                   - !Ref BackupS3BucketAndFolder
                   - !Ref Subnet
                   - !Sub '${AWS::Region}'
-                  - true
+                  - 'true'
               ignoreErrors: 'false'
             1-generate-unattended-install-settings:
               command: !Join
@@ -374,7 +374,7 @@ Resources:
                 - ' '
                 - - '/usr/src/pyramid/mnt-efs.sh --mountPoint /mnt/pyramid --subnet'
                   -  !Ref Subnet
-                  - "--baseStackName"
+                  - '--baseStackName'
                   - !Ref BaseStackName
                   - '--efsRootDirectory /shared'
                   - '--region'
@@ -388,14 +388,15 @@ Resources:
                   - '"*'
               command: !Join
                 - ' '
-                - - "/usr/src/pyramid/mnt-imdb.sh --mountPoint /mnt/pyramid-imdb"
-                  - "--baseStackName"
+                - - '/usr/src/pyramid/mnt-imdb.sh'
+                  - '--mountPoint /mnt/pyramid-imdb'
+                  - '--baseStackName'
                   - !Ref BaseStackName
-                  - "--currentStackName"
+                  - '--currentStackName'
                   - !Ref 'AWS::StackName'
-                  - "--subnet"
+                  - '--subnet'
                   - !Ref Subnet
-                  - "--region"
+                  - '--region'
                   - !Ref 'AWS::Region'
               ignoreErrors: 'false'
 
