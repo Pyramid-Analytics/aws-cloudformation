@@ -852,7 +852,7 @@ Resources:
 
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14/pyramid-single-instance-ssm.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14/pyramid-single-instance.yaml
       Parameters:
         AMIID: !Ref AMIID
         BaseStackName: !Ref BaseStackName
@@ -865,7 +865,6 @@ Resources:
             - !Ref PyramidProcessesSecurityGroup
             - !Ref MountTargetSecurityGroup
         Subnet: !Ref Subnet
-        IMDBFileSystemOption: newExternal
         BackupS3BucketAndFolder: !Ref BackupS3BucketAndFolder
         AssignPublicIP: true
         InstallProxy: true
