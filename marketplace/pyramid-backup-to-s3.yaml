@@ -16,7 +16,6 @@ Metadata:
         Parameters:
           - LatestAmiId
           - Subnet
-          - KeyPairName
           - RunOnce
     ParameterLabels:
       BucketName:
@@ -25,8 +24,6 @@ Metadata:
         default: Optional. Folder within bucket to backup to. Date-timestamp folder will be created under this.
       BaseStackName:
         default: Base Stack of the Pyramid deployment to be backed up
-      KeyPairName:
-        default: Key pair name
       LatestAmiId:
         default: Latest Amazon Linux 2 AMI
       Subnet:
@@ -67,25 +64,11 @@ Parameters:
       - true
       - false
     ConstraintDescription: Required
-  KeyPairName:
-    Description: >-
-      Name of an existing EC2 key pair, which allows you to securely connect to
-      your instance after it launches.
-    Type: 'AWS::EC2::KeyPair::KeyName'
-    ConstraintDescription: Required
   Subnet:
     Description: >-
       Subnet within the VPC of the Pyramid deployment to run the instance
     Type: 'AWS::EC2::Subnet::Id'
     ConstraintDescription: Required
-Rules:
-  KeyPairsNotEmpty:
-    Assertions:
-      - Assert: !Not 
-          - 'Fn::EachMemberEquals':
-              - 'Fn::RefAll': 'AWS::EC2::KeyPair::KeyName'
-              - ''
-        AssertDescription: All key pair parameters must not be empty
 Conditions:
   CreateS3Bucket: !Equals
    - !Ref BucketName

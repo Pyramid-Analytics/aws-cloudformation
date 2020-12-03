@@ -8,50 +8,46 @@
 # Create the  --mountPoint <mount point directory> and mount an Elastic File
 # System (EFS) id --efsId <EFS ID> to it.
 #
-# Specific logic for mounting the IMDB file system.
-#
 # Parameters:
-# mode=${mode:-imdbPostInstall}
 # efsId=${efsId}
 # mountPoint=${mountPoint:-/mnt/pyramid}
+# efsRootDirectory=${efsRootDirectory:-/}
+# ownership=${ownership:-pyramid:pyramid}
 # subnet
 # securityGroup
-# installLocation=${installLocation:-/opt/Pyramid}
-# dataLocation=${dataLocation:-/opt/Pyramid/repository}
+# region
+# baseStackName
 #
 # So minimal use is:
-# mnt-efs-helper-imdb.sh --efsId fs-24334234 --subnet subnet-055fb67972f8052d2 --securityGroup sg-0667a5ea299a0e03c
-#
-# Run before Pyramid install (--mode mountOnly):
-#   Assumes that there is no content on the instance to be saved to the new mount.
-#   Eg.: --mode mountOnly --efsId fs-2347290 --mountPoint <mount point directory>
-#   In the unattended install file,
-#   Set the data-location=/mnt/pyramid
-#
-#   The full set of files of the data-location will be on the EFS mount.
-#
-# Run post Pyrmaid install - the default (--mode imdbPost):
-#   Only sets the mount for the imdata in the data-location
-#   Eg.: --mode imdbPost --efsId fs-2347290 --mountPoint <mount point directory> --dataLocation <data-location> --installLocation <install-location>
-#
+# mnt-efs.sh \
+#   --efsId fs-24334234 \
+#   --subnet subnet-055fb67972f8052d2 \
+#   --securityGroup sg-0667a5ea299a0e03c \
+#   --region us-east-1
+# or
+# mnt-efs.sh \
+#   --baseStackName Pyramid-2020-14-existing-db-4 \
+#   --subnet subnet-055fb67972f8052d2 \
+#   --region us-east-1
+##
 # This script can only run on an AWS instance. It must run as root, and be
 # invoked at instance startup: cf-init, user data
 #
- 
+
 set -o errexit
 
 # ----------------------------------------------------------------------------
 # Set and validate parameters
 # ----------------------------------------------------------------------------
 
-mode=${mode:-imdbPostInstall}
 efsId=${efsId}
+efsRootDirectory=${efsRootDirectory:-/}
 mountPoint=${mountPoint:-/mnt/pyramid}
-installLocation=${installLocation:-/opt/Pyramid}
-dataLocation=${dataLocation:-/opt/Pyramid/repository}
+ownership=${ownership:-pyramid:pyramid}
 subnet=
 securityGroup=
 region=
+baseStackName=
 
 wait_for_mount_target_availability() {
   local mountTarget=${1}
@@ -133,6 +129,44 @@ create_mount_target() {
   return $?
 }
 
+mount_efs() {
+  local efsId=${1}
+  local mountPoint=${2}
+  local efsRootDirectory=${3:-/}
+  local ownership=${4:"pyramid:pyramid"}
+
+  # ----------------------------------------------------------------------------
+  # Create mount point directory
+  # ----------------------------------------------------------------------------
+  # if the mountPoint directory does not exist
+  if [ ! -d "${mountPoint}" ] ; then
+    mkdir -p "${mountPoint}"
+    chown "${ownership}" "${mountPoint}"
+  else
+    # fail if the mountPoint already exists
+    echo "mountPoint directory ${mountPoint} already exists. exiting..."
+    exit 1
+  fi
+
+  # Mount the EFS volume using the AWS EFS helper
+  # IAM is used for authentication to EFS
+  local sleepTime=20
+  local maxTimes=40
+  local notificationCount=5
+  local count=0
+  while true
+  do
+    mount -t efs -o tls,iam $efsId:$efsRootDirectory $mountPoint && break
+    count=$(( count + 1  ))
+    if [ "$count" -ge "$maxTimes" ] ; then
+      echo "Mount did not succeed after ${maxTimes} tries, waiting ${sleepTime} seconds between tries... Exiting"
+      exit 1
+    elif  ! (( count % notificationCount )) ; then
+        echo "Mount did not succeed ...continuing to wait"
+    fi
+    sleep $sleepTime
+  done
+}
 
 ##########################################
 # main script
@@ -141,29 +175,14 @@ while [ $# -gt 0 ]; do
   if [[ $1 == *"--"* ]]; then
     param="${1/--/}"
     declare $param="$2"
-    echo $1 $2 # Optional: to see the parameter:value result
+    echo $1 $2 # see the parameter:value result
     shift
   fi
   shift
 done
 
-if [[ "${mode}" != 'imdbPostInstall' && "${mode}" != 'mountOnly' ]] ; then
-  echo "--mode must be 'imdbPostInstall' or 'mountOnly'"
-  exit 1
-fi
-
-if [[ -z "${efsId}" ]] ; then
-  echo "efsId not set"
-  exit 1
-fi
-
 if [[ -z "${subnet}" ]] ; then
   echo "subnet not set"
-  exit 1
-fi
-
-if [[ -z "${securityGroup}" ]] ; then
-  echo "securityGroup not set"
   exit 1
 fi
 
@@ -172,79 +191,51 @@ if [[ -z "${region}" ]] ; then
   exit 1
 fi
 
+if [[ -z "${efsId}" ]] ; then
+  if [[ ! -z "${baseStackName}" ]] ; then
+    efsId=`aws ssm get-parameter --name "/Pyramid/$baseStackName/SharedFileSystem" --region $region --output text | cut -f 7`
+  fi
+  if [[ -z "${efsId}" ]] ; then
+    echo "efsId not set"
+    exit 1
+  fi
+fi
+
+if [[ -z "${securityGroup}" ]] ; then
+  if [[ ! -z "${baseStackName}" ]] ; then
+    securityGroup=`aws ssm get-parameter --name "/Pyramid/$baseStackName/MountTargetSecurityGroup" --region $region --output text | cut -f 7`
+  fi
+  if [[ -z "${efsId}" ]] ; then
+    echo "securityGroup not set"
+    exit 1
+  fi
+fi
+
+
 # create a mount target group if needed
 create_mount_target $efsId $subnet $securityGroup $region
 if [ $? -ne 0 ] ; then
- echo "create_mount_target failed"
- exit 1
+echo "create_mount_target failed"
+exit 1
 fi
 
-if [ "${mode}" = 'imdbPostInstall' ] ; then
-  if [[ ! -f "${installLocation}/config.ini" ]] ; then
-    echo "Pyramid install in ${installLocation} does not exist. exiting..."
-    exit 1
+if [[ "$efsRootDirectory" != "/" ]] ; then
+  echo "Making sure $efsId:$efsRootDirectory exists"
+
+  tmpMountPoint="/tmp${mountPoint}"
+  mount_efs $efsId $tmpMountPoint
+
+  if [ ! -d "${tmpMountPoint}${efsRootDirectory}" ] ; then
+    mkdir -p "${tmpMountPoint}${efsRootDirectory}"
+    chown pyramid:pyramid "${tmpMountPoint}${efsRootDirectory}"
   fi
-  if [[ ! -d "${dataLocation}" ]] ; then
-    echo "Pyramid data-location in ${dataLocation} does not exist. exiting..."
-    exit 1
-  fi
 
-  # Stop the IMDB service
-  systemctl stop pyramidIMDB
-fi
- 
-# ----------------------------------------------------------------------------
-# Create mount point directory
-# ----------------------------------------------------------------------------
-# if the mountPoint directory does not exist
-if [ ! -d "${mountPoint}" ] ; then
-  mkdir -p "${mountPoint}"
-else
-  # fail if the mountPoint already exists
-  echo "mountPoint directory ${mountPoint} already exists. exiting..."
-  exit 1
-fi
+  umount $tmpMountPoint
+  rm -rf $tmpMountPoint
+fi 
 
-echo "About to mount $efsId to $mountPoint"
+echo "About to mount $efsId:$efsRootDirectory to $mountPoint"
 
-# Mount the EFS volume using the AWS EFS helper
-# IAM is used for authentication to EFS
-sleepTime=20
-maxTimes=40
-notificationCount=5
-count=0
-while true
-do
-  mount -t efs -o tls,iam $efsId $mountPoint && break
-  count=$(( count + 1  ))
-  if [ "$count" -ge "$maxTimes" ] ; then
-    echo "Mount did not succeed after ${maxTimes} tries, waiting ${sleepTime} seconds between tries... Exiting"
-    exit 1
-  elif  ! (( count % notificationCount )) ; then
-      echo "Mount did not succeed ...continuing to wait"
-  fi
-  sleep $sleepTime
-done
+mount_efs $efsId $mountPoint $efsRootDirectory
 
-echo "Mounted EFS $efsId to $mountPoint"
-
-# work is done for mountOnly
-if [ "${mode}" = 'mountOnly' ] ; then
-  exit 0
-fi
-
-# Only imdbPostInstall from now on
-
-# Copy current imdata into the EFS volume 
-if [[ "$(ls -A ${dataLocation}/imdata)" ]] ; then
-  cp -p -R "${dataLocation}/imdata"/. "${mountPoint}"
-  echo "Moved on-instance IMDATA to EFS"
-fi
-
-# Update the config.ini reference for the IMDB datadirlocal= to the mountPoint
-sed -i "s|datadirlocal=.*|datadirlocal=$mountPoint|" "$installLocation/config.ini"
-
-
-# Restart the IMDB service
-systemctl start pyramidIMDB
-
+echo "Mounted EFS $efsId:$efsRootDirectory to $mountPoint"

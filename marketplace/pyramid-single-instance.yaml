@@ -11,10 +11,7 @@ Metadata:
           - AMIID
           - Subnet
           - InstanceType
-          - KeyPairName
           - WorkloadSecurityGroups
-          - PyramidRole
-          - PyramidInstanceProfile
           - AssignPublicIP
           - InstallProxy
       - Label:
@@ -23,22 +20,12 @@ Metadata:
           - BaseStackName
           - PyramidProcess
           - InstancePurpose
-          - InitialUsername
-          - InitialUserPassword
-          - SharedFileSystemId
-          - MountTargetSecurityGroup
-          - IMDBFileSystemOption
-          - IMDBExternalFileSystemId
           - RunOnce
+          - BackupS3BucketAndFolder
       - Label:
           default: Repository Database configuration
         Parameters:
           - RepositoryType
-          - RDSAddress
-          - RDSPort
-          - RDSUser
-          - RDSPassword
-          - RDSName
     ParameterLabels:
       BaseStackName:
         default: Base Stack this stack is a part of
@@ -46,14 +33,8 @@ Metadata:
         default: Pyramid processes to run
       InstancePurpose:
         default: Note on this instance's purpose
-      KeyPairName:
-        default: Key pair name
       WorkloadSecurityGroups:
         default: Security Groups for instances
-      PyramidInstanceProfile:
-        default: IamInstanceProfile for instance
-      PyramidRole:
-        default: IamRole for instance
       AMIID:
         default: Pyramid AMI Id
       Subnet:
@@ -62,34 +43,14 @@ Metadata:
         default: Assign public IP and domain name
       RepositoryType:
         default: Using existing repository database, or creating new one
-      RDSAddress:
-        default: RDS database address
-      RDSPort:
-        default: RDS database port
-      RDSUser:
-        default: RDS database user name
-      RDSPassword:
-        default: RDS database password
-      RDSName:
-        default: RDS database name
-      InitialUsername:
-        default: Initial Pyramid user name
-      InitialUserPassword:
-        default: Initial Pyramid User password
       InstanceType:
         default: Cluster instance type
-      MountTargetSecurityGroup:
-        default: Security Group for EFS access
       RunOnce:
         default: Run once and terminate
+      BackupS3BucketAndFolder:
+        default: S3 bucket and optional path to a Pyramid backup
       InstallProxy:
         default: Install nginx as a proxy to the Pyramid web server
-      SharedFileSystemId:
-        default: EFS Id for the deployment's shared file system
-      IMDBFileSystemOption:
-        default: Position of IMDB file system
-      IMDBExternalFileSystemId:
-        default: EFS Id for existing file system
 Parameters:
   PyramidProcess:
     Description: >-
@@ -128,21 +89,6 @@ Parameters:
     Description: AMI ID of the Pyramid AWS Workplace listing. Usually passed in from another template.
     Type: AWS::EC2::Image::Id
     ConstraintDescription: Required
-  PyramidInstanceProfile:
-    Description: IamInstanceProfile ID for instance.
-    Type: String
-    MinLength: '1'
-    ConstraintDescription: Required
-  PyramidRole:
-    Description: IamIRole ID for instance.
-    Type: String
-    MinLength: '1'
-    ConstraintDescription: Required
-  MountTargetSecurityGroup:
-    Description: For In-Memory EFS access.
-    Type: String
-    MinLength: '1'
-    ConstraintDescription: Required
   WorkloadSecurityGroups:
     Description: >-
       Security groups shared between Pyramid processes
@@ -157,6 +103,15 @@ Parameters:
       - true
       - false
     ConstraintDescription: Required
+  BackupS3BucketAndFolder:
+    Description: >-
+      S3 path to a Pyramid backup
+    Type: String
+    MaxLength: '1000'
+    Default: ''
+    AllowedPattern: '^$|(?=^.{5,1000}$)[a-zA-Z][-_a-zA-Z0-9/\=()]*$'
+    ConstraintDescription: >-
+      Optional. Otherwise min 5 characters. First character must be a letter. Must contain only letters, digits, '/', '-', '_', '=', '*' or parentheses.
   InstallProxy:
     Description: >-
       Install nginx as a proxy to the Pyramid web server.
@@ -165,12 +120,6 @@ Parameters:
     AllowedValues:
       - true
       - false
-    ConstraintDescription: Required
-  KeyPairName:
-    Description: >-
-      Name of an existing EC2 key pair, which allows you to securely connect to
-      your instance after it launches.
-    Type: 'AWS::EC2::KeyPair::KeyName'
     ConstraintDescription: Required
   Subnet:
     Description: >-
@@ -226,7 +175,7 @@ Parameters:
       - c5n.xlarge
       - c5n.2xlarge
       - c5n.4xlarge
-    Default: m5.xlarge
+    Default: c5.2xlarge
     MinLength: '1'
     ConstraintDescription: Must contain valid instance type.
   RepositoryType:
@@ -240,105 +189,7 @@ Parameters:
     Default: currentremote
     MinLength: '1'
     ConstraintDescription: Must contain newremote, currentremote or newlocal.
-  RDSUser:
-    Description: Master user name for the RDS database.
-    Type: String
-    MinLength: '1'
-    MaxLength: '64'
-    AllowedPattern: '[-_a-zA-Z0-9]*'
-    ConstraintDescription: It can contain only alphanumeric characters and underscores.
-  RDSPassword:
-    Description: >-
-      Master password for the RDS database. Min 8 characters. Can contain only
-      alphanumeric characters, minus and underscores.
-    Type: String
-    MinLength: '8'
-    MaxLength: '64'
-    NoEcho: 'true'
-    AllowedPattern: '[-_a-zA-Z0-9]*'
-    ConstraintDescription: >-
-      Min 8 characters. Can contain only alphanumeric characters, minus and
-      underscores.
-  RDSAddress:
-    Description: Domain/Address of the Amazon Postgres RDS database.
-    Type: String
-    MinLength: '1'
-    MaxLength: '128'
-    AllowedPattern: '[-_a-zA-Z0-9\.]*'
-    ConstraintDescription: >-
-      Domain/Address should be letters, digits, '.', '-' or underscores. Maximum
-      128 characters long.
-  RDSPort:
-    Description: RDS Port
-    Type: Number
-    Default: '5432'
-    MinValue: '1024'
-    ConstraintDescription: Port number should be higher than 1024
-  RDSName:
-    Description: Repository database name.
-    Type: String
-    Default: pyramid
-    MinLength: '1'
-    MaxLength: '64'
-    AllowedPattern: '[-_a-zA-Z0-9]*'
-    ConstraintDescription: 'Can contain only alphanumeric characters, minus and underscores.'
-  InitialUserPassword:
-    AllowedPattern: "[a-zA-Z][a-zA-Z0-9]*"
-    ConstraintDescription: "Min 8 characters. Must begin with a letter and contain only alphanumeric characters."
-    Description: "The Pyramid initial user password."
-    MaxLength: "64"
-    MinLength: "8"
-    NoEcho: "True"
-    Type: String
-  InitialUsername: 
-    AllowedPattern: "[a-zA-Z][a-zA-Z0-9]*"
-    ConstraintDescription: "Must begin with a letter and contain only alphanumeric characters."
-    Default: admin
-    Description: "The Pyramid initial username."
-    MaxLength: "16"
-    MinLength: "1"
-    Type: String
-  SharedFileSystemId: 
-    AllowedPattern: "^$|[a-zA-Z][a-zA-Z0-9-]*"
-    ConstraintDescription: "Must begin with a letter and contain only alphanumeric characters or minus."
-    Default: ''
-    Description: "EFS volume Id for existing file system shared across deployment."
-    MaxLength: "32"
-    Type: String
-  IMDBFileSystemOption:
-    Description: File system type for in-memory database persistence.
-    Type: String
-    Default: onInstance
-    AllowedValues:
-      - onInstance
-      - existingExternal
-      - newExternal
-  IMDBExternalFileSystemId: 
-    AllowedPattern: "^$|[a-zA-Z][a-zA-Z0-9-]*"
-    ConstraintDescription: "Must begin with a letter and contain only alphanumeric characters or minus."
-    Default: ''
-    Description: "EFS volume Id for in-memory database persistence for existing file system. Use if IMDBFileSystemOption != onInstance"
-    MaxLength: "32"
-    Type: String
-Rules:
-  KeyPairsNotEmpty:
-    Assertions:
-      - Assert: !Not 
-          - 'Fn::EachMemberEquals':
-              - 'Fn::RefAll': 'AWS::EC2::KeyPair::KeyName'
-              - ''
-        AssertDescription: All key pair parameters must not be empty
 Conditions:
-  CurrentRepositoryTypeCondition: !Equals
-    - !Ref RepositoryType
-    - currentremote
-  #RemoteRepositoryTypeCondition: !Not
-  #  - !Equals
-  #    - !Ref RepositoryType
-  #    - newlocal
-  #UseRDSPasswordInSecretsManager: !Equals
-  #  - !Ref RDSPassword
-  #  - 'useRDSPasswordInSecretsManager'
   TerminateInstance: !Equals
    - !Ref RunOnce
    - 'true'
@@ -348,49 +199,6 @@ Conditions:
   AssignPublicIPCondition: !Equals
    - !Ref AssignPublicIP
    - 'true'
-  DisableComponents: !Not
-    - !Equals
-      - !Ref PyramidProcess
-      - 'Everything'
-  IMDBProcessIncluded: !Or
-    - !Equals
-      - !Ref PyramidProcess
-      - 'Everything'
-    - !Equals
-      - !Ref PyramidProcess
-      - 'InMemoryDB'
-  NotInternalIMDB: !And
-    - !Condition IMDBProcessIncluded
-    - !Not
-      - !Equals
-        - !Ref IMDBFileSystemOption
-        - 'internal'
-  InternalIMDB: !And
-    - !Condition IMDBProcessIncluded
-    - !Equals
-      - !Ref IMDBFileSystemOption
-      - 'internal'
-  CreateExternalIMDB: !And
-    - !Condition IMDBProcessIncluded
-    - !Equals
-      - !Ref IMDBFileSystemOption
-      - 'newExternal'
-Mappings:
-  ProcessesToExclude:
-    Processes:
-      Router: 'linws,linrte,linte,linimdb,linai'
-      WebServer: 'linrte,linte,linrtr,linimdb,linai'
-      WebServerAndRouter: 'linrte,linte,linimdb,linai'
-      RuntimeEngine: 'linws,linte,linrtr,linimdb,linai'
-      TaskEngine: 'linws,linrte,linrtr,linimdb,linai'
-      RuntimeEngineAndTaskEngine: 'linws,linrtr,linimdb,linai'
-      RuntimeEngineAndAI: 'linws,linte,linrtr,linimdb'
-      TaskEngineAndAI: 'linws,linrte,linrtr,linimdb'
-      RuntimeAndTaskEngineAndAI: 'linws,linrtr,linimdb'
-      AIServer: 'linws,linrte,linte,linrtr,linimdb'
-      InMemoryDB: 'linws,linrte,linte,linrtr,linai'
-      Nothing: 'linws,linrte,linte,linrtr,linimdb,linai'
-      Everything: ''
 
 Resources:
   InstanceWaitHandle:
@@ -403,100 +211,6 @@ Resources:
       Timeout: '1800'
       Count: 1
 
-  IMDBFileSystem:
-    Type: 'AWS::EFS::FileSystem'
-    Condition: CreateExternalIMDB
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
-    Properties:
-      BackupPolicy:
-        Status: ENABLED
-      Encrypted: true
-      FileSystemTags:
-        - Key: Name
-          Value: !Sub '${BaseStackName}-${AWS::StackName}-pyramid-IMDB'
-      FileSystemPolicy:
-        Version: "2012-10-17"
-        Statement:
-          - Sid: Allow administration
-            Effect: Allow
-            Action:
-              - "elasticfilesystem:Client*"
-            Principal:
-              AWS:
-                - !Sub 'arn:aws:iam::${AWS::AccountId}:root'
-                - !Sub 'arn:aws:iam::${AWS::AccountId}:role/${PyramidRole}'
-      KmsKeyId: !GetAtt IMDBFileSystemKey.Arn
-
-  IMDBFileSystemKey:
-    Type: 'AWS::KMS::Key'
-    Condition: CreateExternalIMDB
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
-    Properties:
-      KeyPolicy:
-        Version: 2012-10-17
-        Id: !Sub '${BaseStackName}-${AWS::StackName}-pyramid-imdb-fs-key'
-        Statement:
-          - Sid: Allow administration of the key
-            Effect: Allow
-            Principal:
-              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
-            Action:
-              - 'kms:*'
-            Resource: '*'
-
-  PyramidIMDBFileSystemManagedPolicy:
-    Type: 'AWS::IAM::ManagedPolicy'
-    Condition: NotInternalIMDB
-    Properties:
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Sid: IMDBFileSystemMountTargets
-            Effect: Allow
-            Action:
-              - 'elasticfilesystem:DescribeMountTargets'
-              - 'elasticfilesystem:CreateMountTarget'
-            Resource:
-              - !Join
-                - ''
-                - - "arn:aws:elasticfilesystem:"
-                  - !Ref AWS::Region
-                  - ':'
-                  - !Ref AWS::AccountId
-                  - ':file-system/'
-                  - !If
-                    - CreateExternalIMDB
-                    - !Ref IMDBFileSystem
-                    - !Ref IMDBExternalFileSystemId
-      Roles:
-        - !Ref PyramidRole
-
-  IMDBMountTargetResource:
-    Type: 'AWS::EFS::MountTarget'
-    Condition: NotInternalIMDB
-    Properties:
-      FileSystemId: !If
-        - CreateExternalIMDB
-        - !Ref IMDBFileSystem
-        - !Ref IMDBExternalFileSystemId
-      SubnetId: !Ref Subnet
-      SecurityGroups:
-        - !Ref MountTargetSecurityGroup
-
-  IMDBFileSystemSSM:
-    Condition: CreateExternalIMDB
-    Type: AWS::SSM::Parameter
-    Properties:
-      Name: !Sub '/Pyramid/${BaseStackName}/${AWS::StackName}/IMDBFileSystem'
-      Type: String
-      Value: !Ref IMDBFileSystem
-      Description: EFS id for added IMDB
-      Tags:
-        StackName: !Sub '${BaseStackName}'
-        Vendor: Pyramid
-
   PyramidInstance:
     Type: 'AWS::EC2::Instance'
     Metadata:
@@ -506,11 +220,10 @@ Resources:
             - 01_setupCfnHup
             - 02_config-amazon-cloudwatch-agent
             - 03_restart_amazon-cloudwatch-agent
-            - EnableAmazonLinuxExtraPackages
             - InstallPyramid
             - !If
               - InstallNginx
-              - InstallNginx
+              - StartNginx
               - !Ref 'AWS::NoValue'
           UpdateEnvironment:
             - 02_config-amazon-cloudwatch-agent
@@ -566,26 +279,20 @@ Resources:
                       "files": {
                         "collect_list": [
                           {
-                            "file_path": "/var/log/cfn-ini*.log",
-                            "log_group_name": "pyramid/${BaseStackName}",
+                            "file_path": "/var/log/cfn-init.log",
+                            "log_group_name": "/pyramid/${BaseStackName}",
                             "log_stream_name": "{instance_id}-${InstancePurpose}/cf-init",
-                            "timestamp_format": "%Y-%m-%d %H:%M:%S,%f"
-                          },
-                          {
-                            "file_path": "/var/log/cloud-*.log",
-                            "log_group_name": "pyramid/${BaseStackName}",
-                            "log_stream_name": "{instance_id}-${InstancePurpose}/cloud-init",
                             "timestamp_format": "%Y-%m-%d %H:%M:%S,%f"
                           },
                            {
                             "file_path": "/tmp/*.log",
-                            "log_group_name": "pyramid/${BaseStackName}",
+                            "log_group_name": "/pyramid/${BaseStackName}",
                             "log_stream_name": "{instance_id}-${InstancePurpose}/installers",
                             "timestamp_format": "%Y-%m-%d %H:%M:%S,%f"
                           },
                           {
                             "file_path": "/opt/Pyramid/log/*.log",
-                            "log_group_name": "pyramid/${BaseStackName}",
+                            "log_group_name": "/pyramid/${BaseStackName}",
                             "log_stream_name": "{instance_id}-${InstancePurpose}/pyramid-logs",
                             "timestamp_format": "%Y-%m-%d %H:%M:%S,%f"
                           }
@@ -602,95 +309,58 @@ Resources:
             02_start_service:
               command: /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
 
-        EnableAmazonLinuxExtraPackages:
-          packages:
-            yum:
-              amazon-efs-utils: []
-          commands:
-            enable_nginx_R_EPEL:
-              command: "amazon-linux-extras enable nginx1 R3.4 epel postgresql10 && yum clean metadata"
-
         InstallPyramid:
-          packages:
-            yum:
-              # installed with EFS
-              # nfs-utils: []
-              postgresql: []
-              
-          files:
-            /usr/src/pyramid/pyramid-unattended-install.ini:
-              content: !Join 
-                - ''
-                - - install-location=/opt/Pyramid
-                  - |+
-
-                  - data-location=/opt/Pyramid/repository
-                  - |+
-
-                  - installation-type=1
-                  - |+
-
-                  - !If
-                    - DisableComponents
-                    - !Join
-                      - ''
-                      - - disable-components=
-                        - !FindInMap 
-                          - ProcessesToExclude
-                          - Processes
-                          - !Ref PyramidProcess
-                    - ''
-                  - |+
-
-                  - repositoryChoice=
-                  - !Ref RepositoryType
-                  - |+
-
-                  - !If
-                    - CurrentRepositoryTypeCondition
-                    - selectCurrentRepository=0
-                    - selectNewRepository=0
-                  - |+
-
-                  - postgreSqlHost=
-                  - !Ref RDSAddress
-                  - |+
-
-                  - postgreSqlPort=
-                  - !Ref RDSPort
-                  - |+
-
-                  - postgreSqlDb=
-                  - !Ref RDSName
-                  - |+
-
-                  - postgreSqlUsername=
-                  - !Ref RDSUser
-                  - |+
-
-                  - postgreSqlUserPassword=
-                  - !Ref RDSPassword
-                  - |+
-
-                  - initUserName=
-                  - !Ref InitialUsername
-                  - |+
-
-                  - initUserPassword=
-                  - !Ref InitialUserPassword
-                  - |+
-
-                  - ''
-
-              encoding: plain
-              mode: '000644'
           commands:
 
-            0-update-chrome dependencies:
-              command: yum update nss -y
+# Single EFS volume now
+# /mnt/pyramid
+
+#   shared/
+  #   common file system
+  #   fs:/shared to /mnt/pyramid
+  #   create fs:/shared if it does not exist
+
+#   imdb/<id>
+#     individual imdata directories
+#     current list in ssm baseStack/stack/IMDBFileSystem = <id> vs list of imdb/<id>
+#     if list of imdb/<id> is longer than baseStack/stack/IMDBFileSystem
+#       use next imdb/<id> -> baseStack/stack/IMDBFileSystem
+#     else
+#       create new imdb/<id>
+#     fs:imdb/<id> to /mnt/pyramid-imdb
+
+#   repoBackup/$baseStackName-repository-$timestamp.dump
+#     backups
+#     ignore these in Pyramid instances
+
+            0-execute-restore:
+              test: !Join
+                - ''
+                - - '[ -n "'
+                  - !Ref BackupS3BucketAndFolder
+                  - '" ]'
+              # restore-from-s3 \
+              #   Pyr-v8 \
+              #   pyr-v8-backup-s3bucket-17f7k5buabvbh/2020-11-11-08-50-14
+              #   subnet-01892aa0ff74872e0 \
+              #   us-east-1 
+              command: !Join
+                - ' '
+                - - '/usr/src/pyramid/restore-from-s3.sh'
+                  - !Ref BaseStackName
+                  - !Ref BackupS3BucketAndFolder
+                  - !Ref Subnet
+                  - !Sub '${AWS::Region}'
+                  - 'true'
               ignoreErrors: 'false'
-            1-mount-shared-fs:
-              command: !Sub "/usr/src/pyramid/mnt-efs-helper-imdb.sh --mode mountOnly --subnet ${Subnet} --securityGroup ${MountTargetSecurityGroup} --efsId ${SharedFileSystemId}  --region ${AWS::Region}"
+            1-generate-unattended-install-settings:
+              command: !Join
+                - ' '
+                - - '/usr/src/pyramid/unattended-install-settings.sh'
+                  - !Ref BaseStackName
+                  - !Ref RepositoryType
+                  - !Ref AWS::Region
+                  - !Ref PyramidProcess
               ignoreErrors: 'false'
             2-install:
               cwd: /usr/src/pyramid
@@ -699,37 +369,38 @@ Resources:
             3-cleanup:
               command: "rm /usr/src/pyramid/pyramid-unattended-install.ini && rm -f /tmp/pyr*.log && rm -f /tmp/bit*.log"
               ignoreErrors: 'false'
-            4-ensure-shared-fs-ownership:
-              command: "chown pyramid:pyramid /mnt/pyramid"
+            4-mount-shared-fs:
+              command: !Join
+                - ' '
+                - - '/usr/src/pyramid/mnt-efs.sh --mountPoint /mnt/pyramid --subnet'
+                  -  !Ref Subnet
+                  - '--baseStackName'
+                  - !Ref BaseStackName
+                  - '--efsRootDirectory /shared'
+                  - '--region'
+                  - !Ref AWS::Region
               ignoreErrors: 'false'
             5-mount-IMDB-fs:
               test: !Join
                 - ''
                 - - '[[ ''Everything,InMemoryDB'' == *"'
                   - !Ref PyramidProcess
-                  - '"* && '''
-                  - !Ref IMDBFileSystemOption
-                  - ''' != ''onInstance'' ]]'
+                  - '"*'
               command: !Join
-                - ''
-                - - "/usr/src/pyramid/mnt-efs-helper-imdb.sh --mountPoint /mnt/pyramid-imdb"
-                  - " --subnet "
+                - ' '
+                - - '/usr/src/pyramid/mnt-imdb.sh'
+                  - '--mountPoint /mnt/pyramid-imdb'
+                  - '--baseStackName'
+                  - !Ref BaseStackName
+                  - '--currentStackName'
+                  - !Ref 'AWS::StackName'
+                  - '--subnet'
                   - !Ref Subnet
-                  - " --securityGroup "
-                  - !Ref MountTargetSecurityGroup
-                  - " --efsId "
-                  - !If
-                    - CreateExternalIMDB
-                    - !Ref IMDBFileSystem
-                    - !Ref IMDBExternalFileSystemId
-                  - " --region "
+                  - '--region'
                   - !Ref 'AWS::Region'
               ignoreErrors: 'false'
 
-        InstallNginx:
-          packages:
-            yum:
-              nginx: []
+        StartNginx:
           files:
             /etc/nginx/default.d/proxy.conf:
               content: |
@@ -755,8 +426,8 @@ Resources:
                   - /etc/nginx/default.d/proxy.conf
     Properties:
       ImageId: !Ref AMIID
-      KeyName: !Ref KeyPairName
-      IamInstanceProfile: !Ref PyramidInstanceProfile
+      KeyName: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/KeyPairName:1}}'
+      IamInstanceProfile: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/PyramidInstanceProfile:1}}'
       InstanceType: !Ref InstanceType
       SecurityGroupIds: !If
         - AssignPublicIPCondition
@@ -806,9 +477,6 @@ Resources:
               Content-Disposition: attachment; filename="userdata.txt"
               #!/bin/bash -xe
 
-              # install CloudWatch
-              rpm -Uvh https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm
-
               # run cfn-init
 
             - '/opt/aws/bin/cfn-init -v  --configsets default --stack '
@@ -847,34 +515,22 @@ Resources:
           Value: !Sub '${InstancePurpose}'
 
 Outputs:
-  RDSAddress:
-    Description: Database domain name
-    Value: !Ref RDSAddress
-  PyramidRDSName:
-    Description: Pyramid database name
-    Value: !Ref RDSName
-  InitialUsername:
-    Value: !Ref InitialUsername
-    Description: Initial user name
-  InitialPassword:
-    Value: !Ref InitialUserPassword
-    Description: Initial user password
+  # RDSAddress:
+  #   Description: Database domain name
+  #   Value: !Ref RDSAddress
+  # PyramidRDSName:
+  #   Description: Pyramid database name
+  #   Value: !Ref RDSName
+  # InitialUsername:
+  #   Value: !Ref InitialUsername
+  #   Description: Initial user name
+  # InitialPassword:
+  #   Value: !Ref InitialUserPassword
+  #   Description: Initial user password
   PublicDNSName:
     Value: !GetAtt PyramidInstance.PublicDnsName
     Description: Instance Public DNS name
   PrivateDNSName:
     Value: !GetAtt PyramidInstance.PrivateDnsName
     Description: Instance Private DNS name
-  IMDBFileSystem:
-    Value: !If
-      - IMDBProcessIncluded
-      - !If
-        - CreateExternalIMDB
-        - !Ref IMDBFileSystem
-        - !If
-          - InternalIMDB
-          - Internal
-          - !Ref IMDBExternalFileSystemId
-      - 'No In-memory database file system created'
-    Description: EFS file system for the In-Memory database
 

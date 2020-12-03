@@ -8,10 +8,8 @@ Metadata:
         default: Network configuration
       Parameters:
       - VPCID
-      # - Subnets
       - SubnetIds
       - DBAccessCIDR
-      - CustomDBSecurityGroup
     - Label:
         default: Database configuration
       Parameters:
@@ -51,14 +49,10 @@ Metadata:
         default: CIDR that can access the cluster
       DBMultiAZ:
         default: Multi-AZ deployment
-      # Subnets:
-      #   default: Subnets in VPC to deploy instances
       SubnetIds:
         default: Subnet Ids in VPC to deploy instances. String of comma separated Ids used when this template is nested.
       VPCID:
         default: VPC ID
-      CustomDBSecurityGroup:
-        default: Pre-defined security group ID for cluster access
 
 Mappings:
   DBFamilyMap:
@@ -143,7 +137,6 @@ Parameters:
     ConstraintDescription: "CIDR block parameter must be in the form x.x.x.x/x"
     Description: "Allowed CIDR block for external access (use VPC CIDR)."
     Type: String
-    Default: ''
   DBMasterUserPassword:
     AllowedPattern: '[-_a-zA-Z0-9]*'
     ConstraintDescription: >-
@@ -182,14 +175,6 @@ Parameters:
     MaxLength: "64"
     Default: ''
     Type: String
-  CustomDBSecurityGroup:
-    Description: "ID of the security group (e.g., sg-0234se). An RDSSecurityGroup will be created if this parameter is left empty."
-    Type: String
-    Default: ''
-  # Subnets:
-  #   Description: Subnets to deploy instances into
-  #   Type: 'List<AWS::EC2::Subnet::Id>'
-  #   Default: ''
   SubnetIds:
     Description: Subnet Ids to deploy instances into.
     Type: CommaDelimitedList
@@ -208,16 +193,6 @@ Rules:
             - 'Fn::RefAll': 'AWS::EC2::VPC::Id'
         AssertDescription: All subnets must in the same VPC
 Conditions: 
-  CreateSecurityGroup:
-    !Equals
-      - !Ref CustomDBSecurityGroup
-      - ''
-  CreateCIDRIngress: !And
-    - !Not
-      - !Equals
-        - !Ref DBAccessCIDR
-        - ''
-    - !Condition CreateSecurityGroup
   IsProvisioned: !Equals
     - !Ref DBEngineMode
     - 'provisioned'
@@ -296,13 +271,7 @@ Resources:
         - 
           Key: Name
           Value: !Sub AuroraDB-${AWS::StackName}
-      VpcSecurityGroupIds: 
-        !If
-          - CreateSecurityGroup
-          - [!Ref RDSSecurityGroup]
-          - [!Ref CustomDBSecurityGroup]
-    # UpdateReplacePolicy: Snapshot
-    # DeletionPolicy: Retain
+      VpcSecurityGroupIds: [!Ref RDSSecurityGroup]
 
   AuroraDB1:
     Type: "AWS::RDS::DBInstance"
@@ -344,7 +313,6 @@ Resources:
 
   RDSSecurityGroup:
     Type: "AWS::EC2::SecurityGroup"
-    Condition: CreateSecurityGroup
     Properties: 
       GroupDescription: "Allow access to database port" 
       SecurityGroupEgress: 
@@ -360,7 +328,6 @@ Resources:
 
   RDSSecurityGroupIngress:
     Type: 'AWS::EC2::SecurityGroupIngress'
-    Condition: CreateSecurityGroup
     Properties:
       GroupId: !GetAtt 'RDSSecurityGroup.GroupId'
       IpProtocol: '-1'
@@ -386,7 +353,6 @@ Resources:
 
   CIDRIngress:
     Type: 'AWS::EC2::SecurityGroupIngress'
-    Condition: CreateCIDRIngress
     Properties:
       GroupId: !GetAtt 'RDSSecurityGroup.GroupId'
       CidrIp: !Ref DBAccessCIDR 
@@ -409,10 +375,7 @@ Outputs:
     Value: !Sub ${AuroraDBCluster.Endpoint.Address}:${AuroraDBCluster.Endpoint.Port}
   RDSSecurityGroup: 
     Description: Security group for access to cluster
-    Value: !If
-      - CreateSecurityGroup
-      - !Ref RDSSecurityGroup
-      - !Ref CustomDBSecurityGroup
+    Value: !Ref RDSSecurityGroup
   RDSEncryptionKey:
     Description: The alias of the encryption key created for RDS
     Value: !If

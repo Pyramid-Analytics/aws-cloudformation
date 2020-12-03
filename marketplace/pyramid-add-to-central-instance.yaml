@@ -13,7 +13,6 @@ Metadata:
           - Subnet
           - InstanceType
           - PyramidProcess
-          - IMDBExternalFileSystemId
     ParameterLabels:
       BaseStackName:
         default: Stack Name of base single instance stack
@@ -23,8 +22,6 @@ Metadata:
         default: Instance type
       PyramidProcess:
         default: Pyramid process(es) for instance
-      IMDBExternalFileSystemId:
-        default: EFS Id for an existing IMDB file system
 Parameters:
   Subnet:
     Description: Subnet for instance within VPC of the original single instance Stack
@@ -40,36 +37,118 @@ Parameters:
       for the deployment region.
     Type: String
     AllowedValues:
-      - m5.xlarge
-      - m5.2xlarge
-      - m5.4xlarge
-      - m5.8xlarge
-      - m5.12xlarge
-      - m5a.xlarge
-      - m5a.2xlarge
-      - m5a.4xlarge
-      - m5a.8xlarge
-      - m5a.12xlarge
-      - m5n.xlarge
-      - m5n.2xlarge
-      - m5n.4xlarge
-      - m5n.8xlarge
-      - m5n.12xlarge
-      - c5.xlarge
+      - c4.2xlarge
+      - c4.4xlarge
+      - c4.8xlarge
       - c5.2xlarge
       - c5.4xlarge
-      - c5.8xlarge
+      - c5.9xlarge
       - c5.12xlarge
-      - c5a.xlarge
+      - c5.18xlarge
+      - c5.24xlarge
       - c5a.2xlarge
       - c5a.4xlarge
       - c5a.8xlarge
       - c5a.12xlarge
-      - c5n.xlarge
+      - c5a.16xlarge
+      - c5a.24xlarge
+      - c5ad.2xlarge
+      - c5ad.4xlarge
+      - c5ad.8xlarge
+      - c5ad.12xlarge
+      - c5ad.16xlarge
+      - c5ad.24xlarge
+      - c5d.2xlarge
+      - c5d.4xlarge
+      - c5d.9xlarge
+      - c5d.12xlarge
+      - c5d.18xlarge
+      - c5d.24xlarge
       - c5n.2xlarge
       - c5n.4xlarge
-      - c5n.8xlarge
-      - c5n.12xlarge
+      - c5n.9xlarge
+      - c5n.18xlarge
+      - m5.2xlarge
+      - m5.4xlarge
+      - m5.8xlarge
+      - m5.12xlarge
+      - m5.16xlarge
+      - m5.24xlarge
+      - m5a.2xlarge
+      - m5a.4xlarge
+      - m5a.8xlarge
+      - m5a.12xlarge
+      - m5a.16xlarge
+      - m5a.24xlarge
+      - m5ad.2xlarge
+      - m5ad.4xlarge
+      - m5ad.8xlarge
+      - m5ad.12xlarge
+      - m5ad.16xlarge
+      - m5ad.24xlarge
+      - m5d.2xlarge
+      - m5d.4xlarge
+      - m5d.8xlarge
+      - m5d.12xlarge
+      - m5d.16xlarge
+      - m5d.24xlarge
+      - m5dn.2xlarge
+      - m5dn.4xlarge
+      - m5dn.8xlarge
+      - m5dn.12xlarge
+      - m5dn.16xlarge
+      - m5dn.24xlarge
+      - m5n.2xlarge
+      - m5n.4xlarge
+      - m5n.8xlarge
+      - m5n.12xlarge
+      - m5n.16xlarge
+      - m5n.24xlarge
+      - r5.2xlarge
+      - r5.4xlarge
+      - r5.8xlarge
+      - r5.12xlarge
+      - r5.16xlarge
+      - r5.24xlarge
+      - r5a.2xlarge
+      - r5a.4xlarge
+      - r5a.8xlarge
+      - r5a.12xlarge
+      - r5a.16xlarge
+      - r5a.24xlarge
+      - r5ad.2xlarge
+      - r5ad.4xlarge
+      - r5ad.8xlarge
+      - r5ad.12xlarge
+      - r5ad.16xlarge
+      - r5ad.24xlarge
+      - r5d.2xlarge
+      - r5d.4xlarge
+      - r5d.8xlarge
+      - r5d.12xlarge
+      - r5d.16xlarge
+      - r5d.24xlarge
+      - r5dn.2xlarge
+      - r5dn.4xlarge
+      - r5dn.8xlarge
+      - r5dn.12xlarge
+      - r5dn.16xlarge
+      - r5dn.24xlarge
+      - r5n.2xlarge
+      - r5n.4xlarge
+      - r5n.8xlarge
+      - r5n.12xlarge
+      - r5n.16xlarge
+      - r5n.24xlarge
+      - t3.2xlarge
+      - t3a.2xlarge
+      - x1.16xlarge
+      - x1.32xlarge
+      - x1e.2xlarge
+      - x1e.4xlarge
+      - x1e.8xlarge
+      - x1e.16xlarge
+      - x1e.32xlarge
     Default: c5.2xlarge
     ConstraintDescription: Must contain valid instance type.
   PyramidProcess:
@@ -91,20 +170,13 @@ Parameters:
       - InMemoryDB
       - Nothing
     Default: Everything
-  IMDBExternalFileSystemId:
-    AllowedPattern: '^$|fs-[a-f0-9]{8}'
-    ConstraintDescription: >-
-      Optional. If entered, must begin with 'fs-' and finished with 8 a-f and numeric characters.
-    Default: ''
-    Description: >-
-      EFS volume Id for in-memory database persistence for existing file system.
-    MaxLength: '32'
-    Type: String
 Mappings:
   AWSAMIRegionMap:
     us-east-1:
       # 2020.13.100
-      '64': ami-029d57f27fac5962a
+      # '64': ami-029d57f27fac5962a
+      # 2020.14.035
+      '64': ami-04708aafb77fcf566
     us-east-2:
       '64': XXX
     us-west-1:
@@ -139,26 +211,23 @@ Mappings:
       '64': XXX
     us-gov-west-1:
       '64': XXX
-
 Conditions:
-  IMDBProcessIncluded: !Or
+  WebAccess: !Or
     - !Equals
       - !Ref PyramidProcess
       - 'Everything'
     - !Equals
       - !Ref PyramidProcess
-      - 'InMemoryDB'
-  CreateExternalIMDB: !And
-    - !Condition IMDBProcessIncluded
+      - 'WebServerAndRouter'
     - !Equals
-      - !Ref IMDBExternalFileSystemId
-      - ''
+      - !Ref PyramidProcess
+      - 'WebServer'
 
 Resources:
   LaunchInstance:
     Type: 'AWS::CloudFormation::Stack'
     Properties:
-      TemplateURL: https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-13-update-1/pyramid-single-instance.yaml
+      TemplateURL: https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14/pyramid-single-instance.yaml
       Parameters:
         BaseStackName: !Ref BaseStackName
         AMIID: !FindInMap 
@@ -174,40 +243,17 @@ Resources:
           - ','
           - - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/PyramidProcessesSecurityGroup:1}}'
             - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/MountTargetSecurityGroup:1}}'
-
-        KeyPairName: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/KeyPairName:1}}'
-
-        PyramidRole: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/PyramidRole:1}}'
-        PyramidInstanceProfile: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/PyramidInstanceProfile:1}}'
-
-        SharedFileSystemId: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/SharedFileSystem:1}}'
-
-        IMDBFileSystemOption: !If
-          - IMDBProcessIncluded
-          - !If
-            - CreateExternalIMDB
-            - newExternal
-            - existingExternal
-          - !Ref AWS::NoValue
-        IMDBExternalFileSystemId: !If
-          - IMDBProcessIncluded
-          - !If
-            - CreateExternalIMDB
-            - !Ref AWS::NoValue
-            - !Ref IMDBExternalFileSystemId
-          - !Ref AWS::NoValue
-
-        MountTargetSecurityGroup: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/MountTargetSecurityGroup:1}}'
+            - !If
+              - WebAccess
+              - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/WebAccessSecurityGroup:1}}'
+              - !Ref 'AWS::NoValue'
+        InstallProxy: !If
+          - WebAccess
+          - true
+          - false
+        AssignPublicIP: !If
+          - WebAccess
+          - true
+          - false
 
         RepositoryType: currentremote
-
-        RDSAddress: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/RepositoryDatabaseAddress:1}}'
-        RDSPort: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/RepositoryDatabasePort:1}}'
-        RDSName: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/RepositoryDatabaseName:1}}'
-        RDSUser: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/RepositoryDatabaseUsername:1}}'
-        RDSPassword: !Sub '{{resolve:secretsmanager:/Pyramid/${BaseStackName}/RepositoryDatabasePassword}}'
-
-        InitialUsername: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/InitialUsername:1}}'
-        InitialUserPassword: !Sub '{{resolve:secretsmanager:/Pyramid/${BaseStackName}/InitialUserPassword}}'
-          # Fn::ImportValue:
-          #   !Sub "${BaseStackName}-InitialUserPassword"

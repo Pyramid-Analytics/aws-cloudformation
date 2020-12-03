@@ -19,7 +19,6 @@ Metadata:
           - KeyPairName
           - HTTPAccessCIDR
           - AllowSSHSecurityGroup
-          - InitializeRepository
           - InitialUsername
           - InitialUserPassword
       - Label:
@@ -30,6 +29,11 @@ Metadata:
           - RDSUser
           - RDSPassword
           - RDSName
+      - Label:
+          default: Existing data
+        Parameters:
+          - BackupS3BucketAndFolder
+          - InitializeRepository
  
     ParameterLabels:
       BaseStackName:
@@ -52,8 +56,6 @@ Metadata:
         default: SSH Security Group ID
       RDSAddress:
         default: Existing PostgreSQL RDS domain name
-      InitializeRepository:
-        default: Initialize Repository?
       RDSPort:
         default: RDS database port
       RDSUser:
@@ -66,6 +68,10 @@ Metadata:
         default: Initial Pyramid user name
       InitialUserPassword:
         default: Initial Pyramid User password
+      BackupS3BucketAndFolder:
+        default: S3 path to a Pyramid backup
+      InitializeRepository:
+        default: If not restoring and using an existing database, initialize the Pyramid Repository database
 Parameters:
   BaseStackName:
     Description: Base Stack Name
@@ -163,15 +169,6 @@ Parameters:
     AllowedPattern: '[a-zA-Z][-_a-zA-Z0-9\.]*'
     ConstraintDescription: >-
       Min 8 characters. First character must be a letter. Must contain only letters, digits, '.', '-' or underscores.
-  InitializeRepository:
-    Description: >-
-      If using a pre-existing database: True to create the repository database schema.
-      False assumes the repository database schema already exists.
-    Type: String
-    AllowedValues:
-      - true
-      - false
-    Default: true
   RDSUser:
     Description: >-
       Master user name for the RDS database. Min 5 characters. It can contain
@@ -233,6 +230,22 @@ Parameters:
     MinLength: '8'
     NoEcho: 'True'
     Type: String
+  BackupS3BucketAndFolder:
+    Description: >-
+      S3 path to a Pyramid backup
+    Type: String
+    Default: ''
+    MaxLength: '1000'
+    AllowedPattern: '^$|^(?=^.{5,255}$)[-_a-zA-Z0-9/\=()]*$'
+    ConstraintDescription: >-
+      Optional. Otherwise min 5 characters. First character must be a letter. Must contain only letters, digits, '/', '-', '_', '=', '*' or parentheses.
+  InitializeRepository:
+    Description: If not restoring and using an existing database, initialize the Pyramid Repository database. false assumes database name exists
+    Type: String
+    Default: true
+    AllowedValues:
+      - true
+      - false
 Rules:
   KeyPairsNotEmpty:
     Assertions:
@@ -255,9 +268,14 @@ Conditions:
     - !Equals 
       - !Ref AllowSSHSecurityGroup
       - ''
-  InitializeRepositoryCondition: !Equals 
-    - !Ref InitializeRepository
-    - 'true'
+  RestoreFromBackup: !Not 
+    - !Equals 
+      - !Ref BackupS3BucketAndFolder
+      - ''
+  InitializeRepositoryCondition: !And
+    - !Not [!Condition RestoreFromBackup]
+    - !Equals [!Ref InitializeRepository, true]
+
 Resources:
   PyramidRole:
     Type: 'AWS::IAM::Role'
@@ -296,9 +314,9 @@ Resources:
                   - 'logs:PutLogEvents'
                 Resource:
                   - !Sub >-
-                    arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:pyramid/${BaseStackName}
+                    arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/pyramid/${BaseStackName}
                   - !Sub >-
-                    arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:pyramid/${BaseStackName}:log-stream:*
+                    arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/pyramid/${BaseStackName}:log-stream:*
               - Sid: SecretsManagerGet
                 Effect: Allow
                 Action:
@@ -310,10 +328,13 @@ Resources:
                 Effect: Allow
                 Action:
                   - 'ssm:GetParameter'
+                  - 'ssm:PutParameter'
+                  - 'ssm:GetParametersByPath'
                 Resource:
-                  - !Sub >-
-                    arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/Pyramid/${BaseStackName}/*
-              - Effect: Allow
+                  - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/Pyramid/${BaseStackName}/*'
+                  - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/Pyramid/${BaseStackName}'
+              - Sid: DescribeSubnets
+                Effect: Allow
                 Action:
                   - 'ec2:DescribeSubnets'
                 Resource: '*'
@@ -323,15 +344,6 @@ Resources:
     Properties:
       Roles:
         - !Ref PyramidRole
-  
-  # CidrOfVpc:
-  #   Type: 'Custom::CidrOfVpcLambda'
-  #   Properties:
-  #     ServiceToken:
-  #       Fn::ImportValue:
-  #         !Sub "${BaseStackName}-CIDRofVPC-ARN"
-  #     VpcId: !Ref VPCID
-  #     Region: !Ref 'AWS::Region'
 
   WebAccessSecurityGroup:
     Type: 'AWS::EC2::SecurityGroup'
@@ -352,6 +364,7 @@ Resources:
           FromPort: 443
           ToPort: 443
           CidrIp: !Ref HTTPAccessCIDR
+
   PyramidProcessesSecurityGroup:
     Type: 'AWS::EC2::SecurityGroup'
     Properties:
@@ -599,6 +612,39 @@ Resources:
       EFSId: !Ref SharedFileSystem
       Region: !Ref 'AWS::Region'
 
+  RestoreManagedPolicy:
+    Type: 'AWS::IAM::ManagedPolicy'
+    Condition: RestoreFromBackup
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: S3GetObject
+            Effect: Allow
+            Action:
+              - 's3:GetObject'
+            Resource:
+              - !Join
+                - ''
+                - - 'arn:'
+                  - !Ref 'AWS::Partition'
+                  - ':s3:::'
+                  - !Ref BackupS3BucketAndFolder
+                  - '/*'
+          - Sid: S3ListBucket
+            Effect: Allow
+            Action:
+              - 's3:ListBucket'
+            Resource:
+              - !Join
+                - ''
+                - - 'arn:'
+                  - !Ref 'AWS::Partition'
+                  - ':s3:::'
+                  - !Select [0, !Split ["/", !Ref BackupS3BucketAndFolder]]
+      Roles:
+        - !Ref PyramidRole
+
   RDSPasswordSecret:
     Type: 'AWS::SecretsManager::Secret'
     Properties:
@@ -608,7 +654,7 @@ Resources:
       Tags:
         -
           Key: StackName
-          Value: !Sub '${BaseStackName}'
+          Value: !Ref BaseStackName
         -
           Key: Vendor
           Value: Pyramid
@@ -622,58 +668,12 @@ Resources:
       Tags:
         -
           Key: StackName
-          Value: !Sub '${BaseStackName}'
+          Value: !Ref BaseStackName
         -
           Key: Vendor
           Value: Pyramid
 
-  PyramidLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties: 
-      LogGroupName: !Sub "pyramid/${BaseStackName}"
-      RetentionInDays: 30
-
-  CentralInstance:
-    Type: 'AWS::CloudFormation::Stack'
-    DependsOn: RDSPasswordSecret
-    Properties:
-      TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-13-update-1/pyramid-single-instance.yaml
-      Parameters:
-        AMIID: !Ref AMIID
-        BaseStackName: !Ref 'BaseStackName'
-        PyramidProcess: Everything
-        InstancePurpose: CentralInstance
-        InstanceType: !Ref InstanceType
-        WorkloadSecurityGroups: !Join 
-          - ','
-          - - !Ref WebAccessSecurityGroup
-            - !Ref PyramidProcessesSecurityGroup
-            - !Ref MountTargetSecurityGroup
-        KeyPairName: !Ref KeyPairName
-        Subnet: !Ref Subnet
-#        VPCID: !Ref VPCID
-        IMDBFileSystemOption: newExternal
-        SharedFileSystemId: !Ref SharedFileSystem
-        MountTargetSecurityGroup: !Ref MountTargetSecurityGroup
-        AssignPublicIP: true
-        InstallProxy: true
-        PyramidRole: !Ref PyramidRole
-        PyramidInstanceProfile: !Ref PyramidInstanceProfile
-        RepositoryType: !If
-          - InitializeRepositoryCondition
-          - newremote
-          - currentremote
-        RDSAddress: !Ref RDSAddress
-        RDSPort: !Ref RDSPort
-        RDSName: !Ref RDSName
-        RDSUser: !Ref RDSUser
-        RDSPassword: !Sub '{{resolve:secretsmanager:/Pyramid/${BaseStackName}/RepositoryDatabasePassword}}'
-        InitialUsername: !Ref InitialUsername
-        InitialUserPassword: !Sub '{{resolve:secretsmanager:/Pyramid/${BaseStackName}/InitialUserPassword}}'
-
   KeyPairNameSSM:
-    DependsOn: CentralInstance
     Type: AWS::SSM::Parameter
     Properties:
       Name: !Sub '/Pyramid/${BaseStackName}/KeyPairName'
@@ -681,11 +681,10 @@ Resources:
       Value: !Ref KeyPairName
       Description: Key pair name
       Tags:
-        StackName: !Sub '${BaseStackName}'
+        StackName: !Ref BaseStackName
         Vendor: Pyramid
 
   PyramidProcessesSecurityGroupSSM:
-    DependsOn: CentralInstance
     Type: AWS::SSM::Parameter
     Properties:
       Name: !Sub '/Pyramid/${BaseStackName}/PyramidProcessesSecurityGroup'
@@ -696,8 +695,18 @@ Resources:
         StackName: !Sub '${BaseStackName}'
         Vendor: Pyramid
 
+  WebAccessSecurityGroupSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/Pyramid/${BaseStackName}/WebAccessSecurityGroup'
+      Type: String
+      Value: !Ref WebAccessSecurityGroup
+      Description: Security group for web access to instances
+      Tags:
+        StackName: !Sub '${BaseStackName}'
+        Vendor: Pyramid
+
   PyramidRoleSSM:
-    DependsOn: CentralInstance
     Type: AWS::SSM::Parameter
     Properties:
       Name: !Sub '/Pyramid/${BaseStackName}/PyramidRole'
@@ -709,7 +718,6 @@ Resources:
         Vendor: Pyramid
 
   PyramidInstanceProfileSSM:
-    DependsOn: CentralInstance
     Type: AWS::SSM::Parameter
     Properties:
       Name: !Sub '/Pyramid/${BaseStackName}/PyramidInstanceProfile'
@@ -721,7 +729,6 @@ Resources:
         Vendor: Pyramid
 
   MountTargetSecurityGroupSSM:
-    DependsOn: CentralInstance
     Type: AWS::SSM::Parameter
     Properties:
       Name: !Sub '/Pyramid/${BaseStackName}/MountTargetSecurityGroup'
@@ -732,19 +739,7 @@ Resources:
         StackName: !Sub '${BaseStackName}'
         Vendor: Pyramid
 
-  IMDBFileSystemSSM:
-    Type: AWS::SSM::Parameter
-    Properties:
-      Name: !Sub '/Pyramid/${BaseStackName}/IMDBFileSystem'
-      Type: String
-      Value: !GetAtt CentralInstance.Outputs.IMDBFileSystem
-      Description: EFS id for IMDB within Central instance
-      Tags:
-        StackName: !Sub '${BaseStackName}'
-        Vendor: Pyramid
-
   SharedFileSystemSSM:
-    DependsOn: CentralInstance
     Type: AWS::SSM::Parameter
     Properties:
       Name: !Sub '/Pyramid/${BaseStackName}/SharedFileSystem'
@@ -756,7 +751,6 @@ Resources:
         Vendor: Pyramid
 
   RepositoryDatabaseAddressSSM:
-    DependsOn: CentralInstance
     Type: AWS::SSM::Parameter
     Properties:
       Name: !Sub '/Pyramid/${BaseStackName}/RepositoryDatabaseAddress'
@@ -768,7 +762,6 @@ Resources:
         Vendor: Pyramid
 
   RepositoryDatabasePortSSM:
-    DependsOn: CentralInstance
     Type: AWS::SSM::Parameter
     Properties:
       Name: !Sub '/Pyramid/${BaseStackName}/RepositoryDatabasePort'
@@ -780,7 +773,6 @@ Resources:
         Vendor: Pyramid
 
   RepositoryDatabaseUsernameSSM:
-    DependsOn: CentralInstance
     Type: AWS::SSM::Parameter
     Properties:
       Name: !Sub '/Pyramid/${BaseStackName}/RepositoryDatabaseUsername'
@@ -792,7 +784,6 @@ Resources:
         Vendor: Pyramid
 
   RepositoryDatabasePasswordARNSSM:
-    DependsOn: CentralInstance
     Type: AWS::SSM::Parameter
     Properties:
       Name: !Sub '/Pyramid/${BaseStackName}/RepositoryDatabasePasswordARN'
@@ -804,7 +795,6 @@ Resources:
         Vendor: Pyramid
 
   RepositoryDatabaseNameSSM:
-    DependsOn: CentralInstance
     Type: AWS::SSM::Parameter
     Properties:
       Name: !Sub '/Pyramid/${BaseStackName}/RepositoryDatabaseName'
@@ -816,7 +806,6 @@ Resources:
         Vendor: Pyramid
 
   InitialUsernameSSM:
-    DependsOn: CentralInstance
     Type: AWS::SSM::Parameter
     Properties:
       Name: !Sub '/Pyramid/${BaseStackName}/InitialUsername'
@@ -838,6 +827,52 @@ Resources:
         StackName: !Sub '${BaseStackName}'
         Vendor: Pyramid
 
+  PyramidLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties: 
+      LogGroupName: !Sub '/pyramid/${BaseStackName}'
+      RetentionInDays: 30
+
+  CentralInstance:
+    Type: 'AWS::CloudFormation::Stack'
+    DependsOn:
+      - SharedFileSystemSSM
+      - InitialUsernameSSM
+      - InitialUserPasswordARNSSM
+      - RepositoryDatabaseAddressSSM
+      - RepositoryDatabasePortSSM
+      - RepositoryDatabaseNameSSM
+      - RepositoryDatabaseUsernameSSM
+      - RepositoryDatabasePasswordARNSSM
+      - MountTargetSecurityGroupSSM
+      - PyramidInstanceProfileSSM
+      - PyramidRoleSSM
+      - PyramidProcessesSecurityGroupSSM
+      - KeyPairNameSSM
+
+    Properties:
+      TemplateURL: >-
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14/pyramid-single-instance.yaml
+      Parameters:
+        AMIID: !Ref AMIID
+        BaseStackName: !Ref BaseStackName
+        PyramidProcess: Everything
+        InstancePurpose: CentralInstance
+        InstanceType: !Ref InstanceType
+        WorkloadSecurityGroups: !Join 
+          - ','
+          - - !Ref WebAccessSecurityGroup
+            - !Ref PyramidProcessesSecurityGroup
+            - !Ref MountTargetSecurityGroup
+        Subnet: !Ref Subnet
+        BackupS3BucketAndFolder: !Ref BackupS3BucketAndFolder
+        AssignPublicIP: true
+        InstallProxy: true
+        RepositoryType: !If
+          - InitializeRepositoryCondition
+          - newremote
+          - currentremote
+
 Outputs:
   PyramidPublicURL:
     Value: !Join
@@ -857,6 +892,9 @@ Outputs:
   KeyPairName:
     Value: !Ref KeyPairName
     Description: Key Pair for instances
+  WebAccessSecurityGroup:
+    Value: !Ref WebAccessSecurityGroup
+    Description: Security Group for Pyramid instances' Web access
   PyramidProcessesSecurityGroup:
     Value: !Ref PyramidProcessesSecurityGroup
     Description: Security Group for Pyramid instances' internal communication
@@ -869,9 +907,6 @@ Outputs:
   MountTargetSecurityGroup:
     Value: !Ref MountTargetSecurityGroup
     Description: Security Group for EFS Mount Targets
-  IMDBFileSystem:
-    Value: !GetAtt CentralInstance.Outputs.IMDBFileSystem
-    Description: EFS file system ID for the In-Memory database
   SharedFileSystem:
     Value: !Ref SharedFileSystem
     Description: EFS file system ID for the shared file system across the deployment
