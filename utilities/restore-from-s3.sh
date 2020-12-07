@@ -1,9 +1,9 @@
 #!/bin/bash
 baseStackName=${1}
 bucketAndFolder=${2}
-subnet=${3}
-region=${4}
-clearOldServers=${5:-true}
+# subnet=${3}
+# region=${4}
+clearOldServers=${3:-true}
   # command: !Join
   #   - ' '
   #   - - /usr/src/pyramid/restore-from-s3.sh
@@ -14,6 +14,14 @@ clearOldServers=${5:-true}
   #     - true
 
 set -o errexit
+
+TOKEN=`curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600"`
+
+mac=`curl -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/mac`
+
+subnet=`curl -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/network/interfaces/macs/$mac/subnet-id`
+
+region=`curl -H "X-aws-ec2-metadata-token: $TOKEN" -s http://169.254.169.254/latest/dynamic/instance-identity/document | grep -oP '\"region\"[[:space:]]*:[[:space:]]*\"\K[^\"]+'`
 
 echo "Restoring:"
 echo "baseStackName = $baseStackName"

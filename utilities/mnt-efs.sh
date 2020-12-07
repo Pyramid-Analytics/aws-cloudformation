@@ -44,9 +44,9 @@ efsId=${efsId}
 efsRootDirectory=${efsRootDirectory:-/}
 mountPoint=${mountPoint:-/mnt/pyramid}
 ownership=${ownership:-pyramid:pyramid}
-subnet=
+# subnet=
 securityGroup=
-region=
+# region=
 baseStackName=
 
 wait_for_mount_target_availability() {
@@ -181,6 +181,14 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+TOKEN=`curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600"`
+
+mac=`curl -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/mac`
+
+subnet=`curl -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/network/interfaces/macs/$mac/subnet-id`
+
+region=`curl -H "X-aws-ec2-metadata-token: $TOKEN" -s http://169.254.169.254/latest/dynamic/instance-identity/document | grep -oP '\"region\"[[:space:]]*:[[:space:]]*\"\K[^\"]+'`
+
 if [[ -z "${subnet}" ]] ; then
   echo "subnet not set"
   exit 1
@@ -190,6 +198,7 @@ if [[ -z "${region}" ]] ; then
   echo "region not set"
   exit 1
 fi
+
 
 if [[ -z "${efsId}" ]] ; then
   if [[ ! -z "${baseStackName}" ]] ; then
