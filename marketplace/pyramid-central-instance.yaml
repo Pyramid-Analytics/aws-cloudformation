@@ -24,6 +24,7 @@ Metadata:
       - Label:
           default: Existing Repository Database Service
         Parameters:
+          - RDSType
           - RDSAddress
           - RDSPort
           - RDSUser
@@ -160,6 +161,13 @@ Parameters:
     Default: ''
     MaxLength: '128'
     AllowedPattern: '^$|sg-[a-f0-9]{6,17}$'
+  RDSType:
+    Description: Database type
+    Type: String
+    Default: PostgreSQL
+    AllowedValues:
+      - PostgreSQL
+      - MicrosoftSQLServer
   RDSAddress:
     Description: >-
       Domain/Address of an existing Postgres RDS service
@@ -750,6 +758,17 @@ Resources:
         StackName: !Sub '${BaseStackName}'
         Vendor: Pyramid
 
+  RepositoryDatabaseTypeSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/Pyramid/${BaseStackName}/RepositoryDatabaseType'
+      Type: String
+      Value: !Ref RDSType
+      Description: Database type for repository in RDS
+      Tags:
+        StackName: !Sub '${BaseStackName}'
+        Vendor: Pyramid
+
   RepositoryDatabaseAddressSSM:
     Type: AWS::SSM::Parameter
     Properties:
@@ -839,6 +858,7 @@ Resources:
       - SharedFileSystemSSM
       - InitialUsernameSSM
       - InitialUserPasswordARNSSM
+      - RepositoryDatabaseTypeSSM
       - RepositoryDatabaseAddressSSM
       - RepositoryDatabasePortSSM
       - RepositoryDatabaseNameSSM
@@ -852,7 +872,7 @@ Resources:
 
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14/pyramid-single-instance.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14-autoscaling/pyramid-single-instance.yaml
       Parameters:
         AMIID: !Ref AMIID
         BaseStackName: !Ref BaseStackName
@@ -910,6 +930,9 @@ Outputs:
   SharedFileSystem:
     Value: !Ref SharedFileSystem
     Description: EFS file system ID for the shared file system across the deployment
+  RepositoryDatabaseType:
+    Value: !Ref RDSType
+    Description: Repository database type
   RepositoryDatabaseAddress:
     Value: !Ref RDSAddress
     Description: Repository database address

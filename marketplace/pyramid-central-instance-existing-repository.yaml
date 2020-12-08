@@ -21,6 +21,7 @@ Metadata:
       - Label:
           default: Existing Repository Database Service
         Parameters:
+          - RDSType
           - RDSAddress
           - RDSPort
           - RDSUser
@@ -44,8 +45,10 @@ Metadata:
         default: HTTP/HTTPS CIDR
       AllowSSHSecurityGroup:
         default: SSH Security Group ID
+      RDSType:
+        default: Database type
       RDSAddress:
-        default: Existing PostgreSQL RDS domain name
+        default: Existing RDS domain name
       RDSPort:
         default: RDS database port
       RDSUser:
@@ -61,7 +64,7 @@ Metadata:
       InitialUserPassword:
         default: Initial Pyramid User password
       BackupS3BucketAndFolder:
-        default: S3 path to a Pyramid backup
+        default: S3 path to a Pyramid backup. Only for PostgreSQL
 Parameters:
   KeyPairName:
     Description: Name of an existing EC2 key pair for SSH connections.
@@ -130,6 +133,13 @@ Parameters:
     Default: ''
     MaxLength: '128'
     AllowedPattern: '^$|sg-[a-f0-9]{6,17}$'
+  RDSType:
+    Description: Database type
+    Type: String
+    Default: PostgreSQL
+    AllowedValues:
+      - PostgreSQL
+      - MicrosoftSQLServer
   RDSAddress:
     Description: >-
       Domain name of exisitng PostgreSQL RDS service (ie. pyramid.cluster-cfave2vnma46.us-east-1.rds.amazonaws.com)
@@ -222,7 +232,7 @@ Mappings:
       # 2020.13.100
       # '64': ami-029d57f27fac5962a
       # 2020.14.035
-      '64': ami-04708aafb77fcf566
+      '64': ami-01a0fa635f41f579d
     us-east-2:
       '64': XXX
     us-west-1:
@@ -283,14 +293,6 @@ Rules:
         AssertDescription: All subnets must be in the same VPC
 
 Resources:
-
-  # CIDRofVPCLambda:
-  #   Type: 'AWS::CloudFormation::Stack'
-  #   Properties:
-  #     TemplateURL: >-
-  #       https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14/pyramid-cidr-lambda.yaml
-  #     Parameters:
-  #       BaseStackName: !Ref 'AWS::StackName'
 
   CidrOfVpcRole:
     Type: 'AWS::IAM::Role'
@@ -441,7 +443,7 @@ Resources:
     Type: 'AWS::CloudFormation::Stack'
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14/pyramid-central-instance.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14-autoscaling/pyramid-central-instance.yaml
       Parameters:
         AMIID: !FindInMap 
           - AWSAMIRegionMap
@@ -457,6 +459,7 @@ Resources:
         AllowSSHSecurityGroup: !Ref AllowSSHSecurityGroup
         InitialUsername: !Ref InitialUsername
         InitialUserPassword: !Ref InitialUserPassword
+        RDSType: !Ref RDSType
         RDSAddress: !Ref RDSAddress
         RDSPort: !Ref RDSPort
         RDSName: !Ref RDSName
@@ -496,6 +499,9 @@ Outputs:
   SharedFileSystem:
     Value: !GetAtt CentralInstance.Outputs.SharedFileSystem
     Description: EFS file system ID for the shared file system across the deployment
+  RepositoryDatabaseType:
+    Value: !Ref RDSType
+    Description: Repository database type
   RepositoryDatabaseAddress:
     Value: !Ref RDSAddress
     Description: Repository database address

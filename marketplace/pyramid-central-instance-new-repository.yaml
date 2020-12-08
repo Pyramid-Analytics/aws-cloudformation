@@ -228,7 +228,7 @@ Mappings:
       # 2020.13.100
       # '64': ami-029d57f27fac5962a
       # 2020.14.035
-      '64': ami-04708aafb77fcf566
+      '64': ami-01a0fa635f41f579d
     us-east-2:
       '64': XXX
     us-west-1:
@@ -289,14 +289,6 @@ Rules:
         AssertDescription: All subnets must be in the same VPC
 
 Resources:
-
-  # CIDRofVPCLambda:
-  #   Type: 'AWS::CloudFormation::Stack'
-  #   Properties:
-  #     TemplateURL: >-
-  #       https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14/pyramid-cidr-lambda.yaml
-  #     Parameters:
-  #       BaseStackName: !Ref 'AWS::StackName'
 
   CidrOfVpcRole:
     Type: 'AWS::IAM::Role'
@@ -449,7 +441,7 @@ Resources:
     UpdateReplacePolicy: Retain
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14/pyramid-aurora-postgres.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14-autoscaling/pyramid-aurora-postgres.yaml
       Parameters:
         VPCID: !Ref VPCID
         SubnetIds: !Join 
@@ -466,7 +458,7 @@ Resources:
     Type: 'AWS::CloudFormation::Stack'
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14/pyramid-central-instance.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14-autoscaling/pyramid-central-instance.yaml
       Parameters:
         AMIID: !FindInMap 
           - AWSAMIRegionMap
@@ -482,6 +474,7 @@ Resources:
         AllowSSHSecurityGroup: !Ref AllowSSHSecurityGroup
         InitialUsername: !Ref InitialUsername
         InitialUserPassword: !Ref InitialUserPassword
+        RDSType: PostgreSQL
         RDSAddress: !GetAtt CreateRepositoryDatabaseService.Outputs.RDSEndPointAddress
         RDSPort: !Ref RDSPort
         RDSName: !Ref RDSName
@@ -521,6 +514,9 @@ Outputs:
   SharedFileSystem:
     Value: !GetAtt CentralInstance.Outputs.SharedFileSystem
     Description: EFS file system ID for the shared file system across the deployment
+  RepositoryDatabaseType:
+    Value: !GetAtt CentralInstance.Outputs.RepositoryDatabaseType
+    Description: RDS Database type
   RepositoryDatabaseAddress:
     Value: !GetAtt CreateRepositoryDatabaseService.Outputs.RDSEndPointAddress
     Description: Repository database address
@@ -539,9 +535,6 @@ Outputs:
   InitialUsername:
     Value: !Ref InitialUsername
     Description: Initial Pyramid user name
-  InitialUserPassword:
-    Value: !Ref InitialUserPassword
-    Description: Initial Pyramid user password
   RDSSecurityGroup:
     Value: !GetAtt CreateRepositoryDatabaseService.Outputs.RDSSecurityGroup
     Description: Security Group access to repository
