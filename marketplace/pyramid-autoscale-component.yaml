@@ -1,0 +1,586 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  This workload template deploys an Auto Scaling Group for Pyramid instances.
+  **WARNING** This template creates EC2 instances and related
+  resources. You will be billed for the AWS resources used if you create a stack
+  from this template. (qs-1puat849f)
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+      - Label:
+          default: Network configuration
+        Parameters:
+          - BaseStackName
+          - SubnetIds
+      - Label:
+          default: Pyramid cluster configuration
+        Parameters:
+          - PyramidProcess
+          - InstancePurpose
+          - AMIID
+          - InstanceType
+          - WorkloadSecurityGroups
+          - WorkloadNodesMinSize
+          - WorkloadNodesMaxSize
+          - WorkloadNodesDesiredCapacity
+          - TargetGroupARN
+          - OperatorEmail
+
+    ParameterLabels:
+      PyramidProcess:
+        default: Pyramid process to deploy
+      InstancePurpose:
+        default: Note on this instance's purpose
+      OperatorEmail:
+        default: Operator email address
+      BaseStackName:
+        default: Base Stack this stack is a part of
+      SubnetIds:
+        default: Subnet Ids for instances. String of Ids used when called as a Nested template
+      WorkloadSecurityGroups:
+        default: Security Groups for instances
+      AMIID:
+        default: Pyramid AMI Id
+      InstanceType:
+        default: Instance type
+      WorkloadNodesDesiredCapacity:
+        default: Nodes desired capacity
+      WorkloadNodesMaxSize:
+        default: Nodes maximum size
+      WorkloadNodesMinSize:
+        default: Nodes minimum size
+      TargetGroupARN:
+        default: TargetGroupARN when connected to a load balancer
+Parameters:
+  PyramidProcess:
+    Description: >-
+      For unattended installation.
+    Type: String
+    AllowedValues:
+      - Everything
+      - EverythingExceptInMemoryDB
+      - Router
+      - WebServer
+      - WebServerAndRouter
+      - RuntimeEngine
+      - TaskEngine
+      - RuntimeEngineAndTaskEngine
+      - RuntimeEngineAndAI
+      - TaskEngineAndAI
+      - RuntimeAndTaskEngineAndAI
+      - AIServer
+      - InMemoryDB
+      - Nothing
+  BaseStackName:
+    Description: Base StackName this stack is a part of
+    Type: String
+    MinLength: '1'
+    MaxLength: '32'
+    AllowedPattern: '[-_a-zA-Z0-9]*'
+    ConstraintDescription: Required
+  InstancePurpose:
+    Description: Free text note indicating instance's purpose.
+    Type: String
+    MinLength: '1'
+    MaxLength: '32'
+    AllowedPattern: '[-_a-zA-Z0-9]*'
+    ConstraintDescription: Required
+  OperatorEmail:
+    Description: >-
+      (Optional) Email address that notifications of any scaling operations will
+      be sent to.
+    Type: String
+    AllowedPattern: >-
+      (([a-zA-Z0-9_\-\.]+)@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.)|(([a-zA-Z0-9\-]+\.)+))([a-zA-Z]{2,4}|[0-9]{1,3})(\]?))||(^$)
+    ConstraintDescription: Must be a valid email address.
+  SubnetIds:
+    Description: Subnet Ids to deploy instances into.
+    Type: CommaDelimitedList
+    Default: ''
+  WorkloadSecurityGroups:
+    Description: >-
+      Security groups shared between Pyramid processes
+    Type: CommaDelimitedList
+    ConstraintDescription: Required
+  AMIID:
+    Description: AMI ID of the Pyramid AWS Workplace listing. Usually passed in from another template.
+    Type: String
+    MinLength: '1'
+    ConstraintDescription: Required
+  InstanceType:
+    Description: >-
+      Amazon EC2 instance type for the Pyramid instances.
+      Has to be available for the deployment region.
+    Type: String
+    AllowedValues:
+      - c4.2xlarge
+      - c4.4xlarge
+      - c4.8xlarge
+      - c5.2xlarge
+      - c5.4xlarge
+      - c5.9xlarge
+      - c5.12xlarge
+      - c5.18xlarge
+      - c5.24xlarge
+      - c5a.2xlarge
+      - c5a.4xlarge
+      - c5a.8xlarge
+      - c5a.12xlarge
+      - c5a.16xlarge
+      - c5a.24xlarge
+      - c5ad.2xlarge
+      - c5ad.4xlarge
+      - c5ad.8xlarge
+      - c5ad.12xlarge
+      - c5ad.16xlarge
+      - c5ad.24xlarge
+      - c5d.2xlarge
+      - c5d.4xlarge
+      - c5d.9xlarge
+      - c5d.12xlarge
+      - c5d.18xlarge
+      - c5d.24xlarge
+      - c5n.2xlarge
+      - c5n.4xlarge
+      - c5n.9xlarge
+      - c5n.18xlarge
+      - m5.2xlarge
+      - m5.4xlarge
+      - m5.8xlarge
+      - m5.12xlarge
+      - m5.16xlarge
+      - m5.24xlarge
+      - m5a.2xlarge
+      - m5a.4xlarge
+      - m5a.8xlarge
+      - m5a.12xlarge
+      - m5a.16xlarge
+      - m5a.24xlarge
+      - m5ad.2xlarge
+      - m5ad.4xlarge
+      - m5ad.8xlarge
+      - m5ad.12xlarge
+      - m5ad.16xlarge
+      - m5ad.24xlarge
+      - m5d.2xlarge
+      - m5d.4xlarge
+      - m5d.8xlarge
+      - m5d.12xlarge
+      - m5d.16xlarge
+      - m5d.24xlarge
+      - m5dn.2xlarge
+      - m5dn.4xlarge
+      - m5dn.8xlarge
+      - m5dn.12xlarge
+      - m5dn.16xlarge
+      - m5dn.24xlarge
+      - m5n.2xlarge
+      - m5n.4xlarge
+      - m5n.8xlarge
+      - m5n.12xlarge
+      - m5n.16xlarge
+      - m5n.24xlarge
+      - r5.2xlarge
+      - r5.4xlarge
+      - r5.8xlarge
+      - r5.12xlarge
+      - r5.16xlarge
+      - r5.24xlarge
+      - r5a.2xlarge
+      - r5a.4xlarge
+      - r5a.8xlarge
+      - r5a.12xlarge
+      - r5a.16xlarge
+      - r5a.24xlarge
+      - r5ad.2xlarge
+      - r5ad.4xlarge
+      - r5ad.8xlarge
+      - r5ad.12xlarge
+      - r5ad.16xlarge
+      - r5ad.24xlarge
+      - r5d.2xlarge
+      - r5d.4xlarge
+      - r5d.8xlarge
+      - r5d.12xlarge
+      - r5d.16xlarge
+      - r5d.24xlarge
+      - r5dn.2xlarge
+      - r5dn.4xlarge
+      - r5dn.8xlarge
+      - r5dn.12xlarge
+      - r5dn.16xlarge
+      - r5dn.24xlarge
+      - r5n.2xlarge
+      - r5n.4xlarge
+      - r5n.8xlarge
+      - r5n.12xlarge
+      - r5n.16xlarge
+      - r5n.24xlarge
+      - t3.2xlarge
+      - t3a.2xlarge
+      - x1.16xlarge
+      - x1.32xlarge
+      - x1e.2xlarge
+      - x1e.4xlarge
+      - x1e.8xlarge
+      - x1e.16xlarge
+      - x1e.32xlarge
+    Default: c5a.2xlarge
+    ConstraintDescription: Must contain valid instance type.
+  WorkloadNodesDesiredCapacity:
+    Description: Desired number of nodes in the Auto Scaling group.  Allowed to be 0 (zero) to turn off all instances.
+    Type: Number
+    Default: '1'
+    MinValue: '0'
+    MaxValue: '10'
+    ConstraintDescription: Required. Must be between 0 and 10.
+  WorkloadNodesMaxSize:
+    Description: Maximum number of nodes in the Auto Scaling group.
+    Type: Number
+    Default: '4'
+    MinValue: '1'
+    MaxValue: '10'
+    ConstraintDescription: Required. Must be between 1 and 10.
+  WorkloadNodesMinSize:
+    Description: >-
+      Minimum number of nodes in the Auto Scaling group. Allowed to be 0 (zero) to turn off all instances.
+    Type: Number
+    Default: '1'
+    MinValue: '0'
+    MaxValue: '10'
+    ConstraintDescription: Required. Must be between 0 and 10.
+  TargetGroupARN:
+    Description: Optional. TargetGroup for load balancer
+    Type: String
+    Default: ''
+Rules:
+  SubnetsInVPC:
+    Assertions:
+      - Assert:
+          'Fn::EachMemberIn':
+            - 'Fn::ValueOfAll':
+                - 'AWS::EC2::Subnet::Id'
+                - VpcId
+            - 'Fn::RefAll': 'AWS::EC2::VPC::Id'
+        AssertDescription: All subnets must in the same VPC
+
+Conditions:
+  NotificationsEnabled: !Not 
+    - !Equals 
+      - !Ref OperatorEmail
+      - ''
+  TargetGroupARNSet: !Not 
+    - !Equals 
+      - !Ref TargetGroupARN
+      - ''
+
+Resources:
+  PyramidProcessLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Metadata:
+      'AWS::CloudFormation::Init':
+        configSets:
+          default:
+            - 01_setupCfnHup
+            - 02_config-amazon-cloudwatch-agent
+            - 03_restart_amazon-cloudwatch-agent
+            - InstallPyramid
+          UpdateEnvironment:
+            - 02_config-amazon-cloudwatch-agent
+            - 03_restart_amazon-cloudwatch-agent
+
+        # Cfn-hup setting, it is to monitor the change of metadata.
+        # When there is change in the contents of json file in the metadata section, cfn-hup will call cfn-init to restart the AmazonCloudWatchAgent.
+        01_setupCfnHup:
+          files:
+            '/etc/cfn/cfn-hup.conf':
+              content: !Sub |
+                [main]
+                stack=${AWS::StackId}
+                region=${AWS::Region}
+                interval=1
+              mode: '000400'
+              owner: root
+              group: root
+            '/etc/cfn/hooks.d/amazon-cloudwatch-agent-auto-reloader.conf':
+              content: !Sub |
+                [cfn-auto-reloader-hook]
+                triggers=post.update
+                path=Resources.PyramidProcessLaunchTemplate.Metadata.AWS::CloudFormation::Init.02_config-amazon-cloudwatch-agent
+                action=/opt/aws/bin/cfn-init -v --stack ${AWS::StackId} --resource PyramidProcessLaunchTemplate --region ${AWS::Region} --configsets UpdateEnvironment
+                runas=root
+              mode: '000400'
+              owner: root
+              group: root
+            "/lib/systemd/system/cfn-hup.service":
+              content: |
+                [Unit]
+                Description=cfn-hup daemon
+                [Service]
+                Type=simple
+                ExecStart=/opt/aws/bin/cfn-hup
+                Restart=always
+                [Install]
+                WantedBy=multi-user.target
+          commands:
+            01enable_cfn_hup:
+              command: systemctl enable cfn-hup.service
+            02start_cfn_hup:
+              command: systemctl start cfn-hup.service
+
+        # Definition of json configuration of AmazonCloudWatchAgent
+        02_config-amazon-cloudwatch-agent:
+          files:
+            /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json:
+              content: !Sub |
+                {
+                  "logs": {
+                    "logs_collected": {
+                      "files": {
+                        "collect_list": [
+                          {
+                            "file_path": "/var/log/cfn-init.log",
+                            "log_group_name": "/pyramid/${BaseStackName}",
+                            "log_stream_name": "{instance_id}-${InstancePurpose}/cf-init",
+                            "timestamp_format": "%Y-%m-%d %H:%M:%S,%f"
+                          },
+                          {
+                            "file_path": "/tmp/*.log",
+                            "log_group_name": "/pyramid/${BaseStackName}",
+                            "log_stream_name": "{instance_id}-${InstancePurpose}/installers",
+                            "timestamp_format": "%Y-%m-%d %H:%M:%S,%f"
+                          },
+                          {
+                            "file_path": "/opt/Pyramid/log/*.log",
+                            "log_group_name": "/pyramid/${BaseStackName}",
+                            "log_stream_name": "{instance_id}-${InstancePurpose}/pyramid-logs",
+                            "timestamp_format": "%Y-%m-%d %H:%M:%S,%f"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+        # Invoke amazon-cloudwatch-agent-ctl to restart the AmazonCloudWatchAgent.
+        03_restart_amazon-cloudwatch-agent:
+          commands:
+            01_stop_service:
+              command: /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a stop
+            02_start_service:
+              command: /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
+
+        InstallPyramid:
+          commands:
+
+  # Single EFS volume now
+  # /mnt/pyramid
+
+  #   shared/
+  #   common file system
+  #   fs:/shared to /mnt/pyramid
+  #   create fs:/shared if it does not exist
+
+  #   imdb/<id>
+  #     individual imdata directories
+  #     current list in ssm baseStack/stack/IMDBFileSystem = <id> vs list of imdb/<id>
+  #     if list of imdb/<id> is longer than baseStack/stack/IMDBFileSystem
+  #       use next imdb/<id> -> baseStack/stack/IMDBFileSystem
+  #     else
+  #       create new imdb/<id>
+  #     fs:imdb/<id> to /mnt/pyramid-imdb
+
+  #   repoBackup/$baseStackName-repository-$timestamp.dump
+  #     backups
+  #     ignore these in Pyramid instances
+            1-generate-unattended-install-settings:
+              command: !Join
+                - ' '
+                - - '/usr/src/pyramid/unattended-install-settings.sh'
+                  - !Ref BaseStackName
+                  - currentremote
+                  - !Ref PyramidProcess
+              ignoreErrors: 'false'
+            2-install:
+              cwd: /usr/src/pyramid
+              command: "for i in Pyramid*.run; do /usr/src/pyramid/$i --mode unattended --optionfile /usr/src/pyramid/pyramid-unattended-install.ini; done"
+              ignoreErrors: 'false'
+            3-cleanup:
+              command: "rm /usr/src/pyramid/pyramid-unattended-install.ini && rm -f /tmp/pyr*.log && rm -f /tmp/bit*.log"
+              ignoreErrors: 'false'
+            4-mount-shared-fs:
+              command: !Join
+                - ' '
+                - - '/usr/src/pyramid/mnt-efs.sh --mountPoint /mnt/pyramid'
+                  - '--baseStackName'
+                  - !Ref BaseStackName
+                  - '--efsRootDirectory /shared'
+              ignoreErrors: 'false'
+            5-mount-IMDB-fs:
+              test: !Join
+                - ''
+                - - '[[ ''Everything,InMemoryDB'' == *"'
+                  - !Ref PyramidProcess
+                  - '"* ]]'
+              command: !Join
+                - ' '
+                - - '/usr/src/pyramid/mnt-imdb.sh'
+                  - '--mountPoint /mnt/pyramid-imdb'
+                  - '--baseStackName'
+                  - !Ref BaseStackName
+                  - '--currentStackName'
+                  - !Ref 'AWS::StackName'
+              ignoreErrors: 'false'
+    Properties: 
+      LaunchTemplateName: !Sub '${AWS::StackName}-${PyramidProcess}'
+      LaunchTemplateData: 
+        ImageId: !Ref AMIID
+        KeyName: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/KeyPairName:1}}'
+        IamInstanceProfile:
+          # arn:aws:iam::<account-id>:instance-profile/<instance-profile-name>
+          Arn: !Sub 'arn:aws:iam::${AWS::AccountId}:instance-profile/{{resolve:ssm:/Pyramid/${BaseStackName}/PyramidInstanceProfile:1}}'
+        InstanceType: !Ref InstanceType
+        SecurityGroupIds: !Ref WorkloadSecurityGroups
+        # Monitoring:
+        #   Enabled: false
+        # DisableApiTermination: false
+        BlockDeviceMappings:
+          - DeviceName: "/dev/sda1"
+            Ebs: 
+              VolumeSize: 20
+        UserData: !Base64
+          'Fn::Join':
+            - ''
+            - - |
+                Content-Type: multipart/mixed; boundary="//"
+                MIME-Version: 1.0
+                --//
+                Content-Type: text/cloud-config; charset="us-ascii"
+                MIME-Version: 1.0
+                Content-Transfer-Encoding: 7bit
+                Content-Disposition: attachment; filename="cloud-config.txt"
+
+                #cloud-config
+                cloud_final_modules:
+                - [scripts-user, always]
+
+                --//
+                Content-Type: text/x-shellscript; charset="us-ascii"
+                MIME-Version: 1.0
+                Content-Transfer-Encoding: 7bit
+                Content-Disposition: attachment; filename="userdata.txt"
+
+                #!/bin/bash -xe
+
+                # run cfn-init
+
+              - '/opt/aws/bin/cfn-init -v  --configsets default --stack '
+              - !Ref 'AWS::StackName'
+              - ' --resource PyramidProcessLaunchTemplate --region '
+              - !Ref 'AWS::Region'
+              - |+
+
+              - '--//'
+              - |+
+
+        TagSpecifications:
+          -
+            ResourceType: instance
+            Tags: 
+              - Key: StackName
+                Value: !Sub '${AWS::StackName}'
+              - Key: Vendor
+                Value: Pyramid
+              - Key: BaseStackName
+                Value: !Sub '${BaseStackName}'
+              - Key: Contents
+                Value: !Sub '${InstancePurpose}'
+
+  WorkloadScaleUpPolicy:
+    Type: 'AWS::AutoScaling::ScalingPolicy'
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: !Ref WorkloadAutoScalingGroup
+      Cooldown: '300'
+      ScalingAdjustment: '1'
+  WorkloadScaleDownPolicy:
+    Type: 'AWS::AutoScaling::ScalingPolicy'
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: !Ref WorkloadAutoScalingGroup
+      Cooldown: '300'
+      ScalingAdjustment: '-1'
+  CPUAlarmHigh:
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      AlarmDescription: Scale-up if CPU > 60% for 5 minutes
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Statistic: Average
+      Period: '60'
+      EvaluationPeriods: '5'
+      Threshold: '60'
+      AlarmActions:
+        - !Ref WorkloadScaleUpPolicy
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: !Ref WorkloadAutoScalingGroup
+      ComparisonOperator: GreaterThanThreshold
+  CPUAlarmLow:
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      AlarmDescription: Scale-down if CPU < 40% for 30 minutes
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Statistic: Average
+      Period: '60'
+      EvaluationPeriods: '30'
+      Threshold: '40'
+      AlarmActions:
+        - !Ref WorkloadScaleDownPolicy
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: !Ref WorkloadAutoScalingGroup
+      ComparisonOperator: LessThanThreshold
+  NotificationTopic:
+    Condition: NotificationsEnabled
+    Type: 'AWS::SNS::Topic'
+    Properties:
+      Subscription:
+        - Endpoint: !Ref OperatorEmail
+          Protocol: email
+  WorkloadAutoScalingGroup:
+    Type: 'AWS::AutoScaling::AutoScalingGroup'
+    Properties:
+      VPCZoneIdentifier: !Ref SubnetIds
+      Cooldown: '600'
+      HealthCheckGracePeriod: '600'
+      HealthCheckType: EC2
+      LaunchTemplate: 
+        LaunchTemplateId: !Ref PyramidProcessLaunchTemplate
+        Version: !GetAtt PyramidProcessLaunchTemplate.LatestVersionNumber
+      MaxSize: !Ref WorkloadNodesMaxSize
+      MinSize: !Ref WorkloadNodesMinSize
+      DesiredCapacity: !Ref WorkloadNodesDesiredCapacity
+      TargetGroupARNs:
+        - !If
+          - TargetGroupARNSet
+          - !Ref TargetGroupARN
+          - !Ref 'AWS::NoValue'
+      NotificationConfigurations: !If 
+        - NotificationsEnabled
+        - - TopicARN: !Ref NotificationTopic
+            NotificationTypes:
+              - 'autoscaling:EC2_INSTANCE_LAUNCH'
+              - 'autoscaling:EC2_INSTANCE_LAUNCH_ERROR'
+              - 'autoscaling:EC2_INSTANCE_TERMINATE'
+              - 'autoscaling:EC2_INSTANCE_TERMINATE_ERROR'
+              - 'autoscaling:TEST_NOTIFICATION'
+        - !Ref 'AWS::NoValue'
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-${PyramidProcess}'
+          PropagateAtLaunch: 'true'
+Outputs:
+  WorkloadAutoScalingGroup:
+    Value: !Ref WorkloadAutoScalingGroup
+    Description: Auto Scaling Group
