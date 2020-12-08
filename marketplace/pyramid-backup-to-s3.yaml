@@ -308,16 +308,12 @@ Resources:
                 # Parameters:
                 # efsId=${efsId}
                 # mountPoint=${mountPoint:-/mnt/pyramid}
-                # subnet
                 # securityGroup
-                # region
                 #
                 # So minimal use is:
                 # mnt-efs.sh \
                 #   --efsId fs-24334234 \
-                #   --subnet subnet-055fb67972f8052d2 \
                 #   --securityGroup sg-0667a5ea299a0e03c \
-                #   --region us-east-1
                 ##
                 # This script can only run on an AWS instance. It must run as root, and be
                 # invoked at instance startup: cf-init, user data
@@ -429,9 +425,32 @@ Resources:
                   shift
                 done
 
+                TOKEN=`curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600"`
+
+                mac=`curl -H "X-aws-ec2-metadata-token: $TOKEN" -v http://169.254.169.254/latest/meta-data/network/interfaces/mac`
+
+                subnet=`curl -H "X-aws-ec2-metadata-token: $TOKEN" -v http://169.254.169.254/latest/meta-data/network/interfaces/macs/$mac/subnet-id`
+
+                region=`curl -H "X-aws-ec2-metadata-token: $TOKEN" -s http://169.254.169.254/latest/dynamic/instance-identity/document | grep -oP '\"region\"[[:space:]]*:[[:space:]]*\"\K[^\"]+'`
+
                 if [[ -z "${efsId}" ]] ; then
-                  echo "efsId not set"
-                  exit 1
+                  if [[ ! -z "${baseStackName}" ]] ; then
+                    efsId=`aws ssm get-parameter --name "/Pyramid/$baseStackName/SharedFileSystem" --region $region --output text | cut -f 7`
+                  fi
+                  if [[ -z "${efsId}" ]] ; then
+                    echo "efsId not set"
+                    exit 1
+                  fi
+                fi
+
+                if [[ -z "${securityGroup}" ]] ; then
+                  if [[ ! -z "${baseStackName}" ]] ; then
+                    securityGroup=`aws ssm get-parameter --name "/Pyramid/$baseStackName/MountTargetSecurityGroup" --region $region --output text | cut -f 7`
+                  fi
+                  if [[ -z "${efsId}" ]] ; then
+                    echo "securityGroup not set"
+                    exit 1
+                  fi
                 fi
 
                 if [[ -z "${subnet}" ]] ; then
@@ -501,12 +520,27 @@ Resources:
                 #!/bin/bash
                 label=$1
                 baseStackName=$2
-                subnet=$3
-                region=$4
-                bucketName=$5
-                bucketFolder=${6:-}
+                # subnet=$3
+                # region=$4
+                bucketName=$3
+                bucketFolder=${4:-}
 
                 set -o errexit
+
+                rdsType=`aws ssm get-parameter --name "/Pyramid/$baseStackName/RepositoryDatabaseType" --region $region --output text | cut -f 7`
+
+                if [[ ! -z ${rdsType} && ${rdsType} != "PostgreSQL" ]] ; then
+                  echo "Invalid RDS type for backup: ${rdsType} "
+                  exit 1
+                fi
+
+                TOKEN=`curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600"`
+
+                mac=`curl -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/mac`
+
+                subnet=`curl -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/network/interfaces/macs/$mac/subnet-id`
+
+                region=`curl -H "X-aws-ec2-metadata-token: $TOKEN" -s http://169.254.169.254/latest/dynamic/instance-identity/document | grep -oP '\"region\"[[:space:]]*:[[:space:]]*\"\K[^\"]+'`
 
                 mtSecurityGroup=`aws ssm get-parameter --name "/Pyramid/$baseStackName/MountTargetSecurityGroup" --region $region --output text | cut -f 7`
                 sharedFileSystemEFS=`aws ssm get-parameter --name "/Pyramid/$baseStackName/SharedFileSystem" --region $region --output text | cut -f 7`
@@ -580,7 +614,11 @@ Resources:
                 echo "Synching to $s3Destination"
                 # dump EFS to s3
                 aws s3 sync --no-progress /mnt/pyramid/shared $s3Destination/shared
-                aws s3 sync --no-progress /mnt/pyramid/imdb $s3Destination/imdb
+
+                if [[ -d /mnt/pyramid/imdb ]] ; then
+                  aws s3 sync --no-progress /mnt/pyramid/imdb $s3Destination/imdb
+                fi
+
                 aws s3 sync --no-progress /mnt/pyramid/repoBackup $s3Destination/repoBackup
 
                 # remove the repo dump from the
@@ -604,8 +642,8 @@ Resources:
                 - - /usr/src/pyramid/backup-to-s3
                   - !GetAtt GetTimeThisTime.Time
                   - !Sub '${BaseStackName}'
-                  - !Sub '${Subnet}'
-                  - !Sub '${AWS::Region}'
+                  # - !Sub '${Subnet}'
+                  # - !Sub '${AWS::Region}'
                   - !If
                     - CreateS3Bucket
                     - !Ref S3Bucket
