@@ -149,7 +149,7 @@ Parameters:
       - x1e.8xlarge
       - x1e.16xlarge
       - x1e.32xlarge
-    Default: c5.2xlarge
+    Default: c5a.2xlarge
     ConstraintDescription: Must contain valid instance type.
   PyramidProcess:
     Description: >-
@@ -166,6 +166,7 @@ Parameters:
       - RuntimeEngineAndAI
       - TaskEngineAndAI
       - RuntimeAndTaskEngineAndAI
+      - EverythingExceptInMemoryDB
       - AIServer
       - InMemoryDB
       - Nothing
@@ -227,7 +228,7 @@ Resources:
   LaunchInstance:
     Type: 'AWS::CloudFormation::Stack'
     Properties:
-      TemplateURL: https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14/pyramid-single-instance.yaml
+      TemplateURL: https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14-autoscaling/pyramid-single-instance.yaml
       Parameters:
         BaseStackName: !Ref BaseStackName
         AMIID: !FindInMap 
