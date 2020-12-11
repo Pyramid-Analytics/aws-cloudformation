@@ -170,7 +170,7 @@ Parameters:
       - MicrosoftSQLServer
   RDSAddress:
     Description: >-
-      Domain/Address of an existing Postgres RDS service
+      Domain/Address of an existing RDS service
     Type: String
     MinLength: '8'
     MaxLength: '128'

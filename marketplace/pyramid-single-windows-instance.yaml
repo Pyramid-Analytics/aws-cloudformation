@@ -1,6 +1,7 @@
 AWSTemplateFormatVersion: 2010-09-09
 Description: >-
   This workload template deploys a single Windows instance of the Windows Connector (DNC).
+  A default Windows AMI is launched and a Pyramid installer is downloaded.
   You will be billed for the AWS resources used if you create a stack from this template. 
 Metadata:
   'AWS::CloudFormation::Interface':
@@ -47,25 +48,33 @@ Metadata:
       InstallProxy:
         default: Install nginx as a proxy to the Pyramid web server
 Parameters:
-  PyramidProcess:
-    Description: >-
-      For unattended installation.
+  LatestWindowsAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-windows-latest/Windows_Server-2019-English-Core-Base'
+    Description: SSM Parameter for Latest Windows 2019 Datacenter AMI
+  WindowsPyramidInstallerURL:
+    Description: Download of a Pyramid Windows installer
     Type: String
-    AllowedValues:
-      - Everything
-      - Router
-      - WebServer
-      - WebServerAndRouter
-      - RuntimeEngine
-      - TaskEngine
-      - RuntimeEngineAndTaskEngine
-      - RuntimeEngineAndAI
-      - TaskEngineAndAI
-      - RuntimeAndTaskEngineAndAI
-      - AIServer
-      - InMemoryDB
-      - Nothing
-    Default: Everything
+    MinLength: '1'
+  # PyramidProcess:
+  #   Description: >-
+  #     For unattended installation.
+  #   Type: String
+  #   AllowedValues:
+  #     - Everything
+  #     - Router
+  #     - WebServer
+  #     - WebServerAndRouter
+  #     - RuntimeEngine
+  #     - TaskEngine
+  #     - RuntimeEngineAndTaskEngine
+  #     - RuntimeEngineAndAI
+  #     - TaskEngineAndAI
+  #     - RuntimeAndTaskEngineAndAI
+  #     - AIServer
+  #     - InMemoryDB
+  #     - Nothing
+  #   Default: Everything
   BaseStackName:
     Description: Base StackName this stack is a part of
     Type: String
@@ -76,40 +85,18 @@ Parameters:
   InstancePurpose:
     Description: Free text note indicating instance's purpose.
     Type: String
+    Default: WindowsConnector
     MinLength: '1'
-    MaxLength: '32'
     AllowedPattern: '[-_a-zA-Z0-9]*'
     ConstraintDescription: Required
-  AMIID:
-    Description: AMI ID of the Pyramid AWS Workplace listing. Usually passed in from another template.
-    Type: AWS::EC2::Image::Id
-    ConstraintDescription: Required
-  WorkloadSecurityGroups:
-    Description: >-
-      Security groups shared between Pyramid processes
-    Type: CommaDelimitedList
-    ConstraintDescription: Required
+  # WorkloadSecurityGroups:
+  #   Description: >-
+  #     Security groups shared between Pyramid processes
+  #   Type: CommaDelimitedList
+  #   ConstraintDescription: Required
   RunOnce:
     Description: >-
       Run the instance start scripts and terminate.
-    Type: String
-    Default: false
-    AllowedValues:
-      - true
-      - false
-    ConstraintDescription: Required
-  BackupS3BucketAndFolder:
-    Description: >-
-      S3 path to a Pyramid backup
-    Type: String
-    MaxLength: '1000'
-    Default: ''
-    AllowedPattern: '^$|(?=^.{5,1000}$)[a-zA-Z][-_a-zA-Z0-9/\=()]*$'
-    ConstraintDescription: >-
-      Optional. Otherwise min 5 characters. First character must be a letter. Must contain only letters, digits, '/', '-', '_', '=', '*' or parentheses.
-  InstallProxy:
-    Description: >-
-      Install nginx as a proxy to the Pyramid web server.
     Type: String
     Default: false
     AllowedValues:
@@ -121,15 +108,6 @@ Parameters:
       ID of private subnet 1 in Availability Zone 1 for the Pyramid
       Servers (e.g., subnet-a0246dcd).
     Type: 'AWS::EC2::Subnet::Id'
-    ConstraintDescription: Required
-  AssignPublicIP:
-    Description: >-
-      Assign public IP address and domain.
-    Type: String
-    Default: false
-    AllowedValues:
-      - true
-      - false
     ConstraintDescription: Required
   InstanceType:
     Description: >-
@@ -173,26 +151,9 @@ Parameters:
     Default: c5.2xlarge
     MinLength: '1'
     ConstraintDescription: Must contain valid instance type.
-  RepositoryType:
-    Description: >-
-      Creating or using a local or remote repository.
-    Type: String
-    AllowedValues:
-      - currentremote
-      - newremote
-      - newlocal
-    Default: currentremote
-    MinLength: '1'
-    ConstraintDescription: Must contain newremote, currentremote or newlocal.
 Conditions:
   TerminateInstance: !Equals
    - !Ref RunOnce
-   - 'true'
-  InstallNginx: !Equals
-   - !Ref InstallProxy
-   - 'true'
-  AssignPublicIPCondition: !Equals
-   - !Ref AssignPublicIP
    - 'true'
 
 Resources:
@@ -212,21 +173,17 @@ Resources:
       'AWS::CloudFormation::Init':
         configSets:
           default:
-            - 01_setupCfnHup
+            - 01_setupCfnHupAndCloudWatchAgent
             - 02_config-amazon-cloudwatch-agent
             - 03_restart_amazon-cloudwatch-agent
             - InstallPyramid
-            - !If
-              - InstallNginx
-              - StartNginx
-              - !Ref 'AWS::NoValue'
           UpdateEnvironment:
             - 02_config-amazon-cloudwatch-agent
             - 03_restart_amazon-cloudwatch-agent
 
         # Cfn-hup setting, it is to monitor the change of metadata.
         # When there is change in the contents of json file in the metadata section, cfn-hup will call cfn-init to restart the AmazonCloudWatchAgent.
-        01_setupCfnHup:
+        01_setupCfnHupAndCloudWatchAgent:
           files:
             c:\\cfn\\cfn-hup.conf:
               content: !Sub |
@@ -254,6 +211,13 @@ Resources:
                   - !Ref 'AWS::Region'
                   - |+
 
+            C:\\PyramidInstall\\AmazonCloudWatchAgent.msi:
+              source: https://s3.amazonaws.com/amazoncloudwatch-agent/windows/amd64/latest/amazon-cloudwatch-agent.msi
+
+          commands:
+            1-install-cloudwatch:
+              command: C:\\PyramidInstall\\AmazonCloudWatchAgent.msi
+
           services:
             windows:
               cfn-hup:
@@ -263,46 +227,10 @@ Resources:
                   - c:\\cfn\\cfn-hup.conf
                   - c:\\cfn\\hooks.d\\cfn-auto-reloader.conf
 
-          # files:
-          #   '/etc/cfn/cfn-hup.conf':
-          #     content: !Sub |
-          #       [main]
-          #       stack=${AWS::StackId}
-          #       region=${AWS::Region}
-          #       interval=1
-          #     mode: '000400'
-          #     owner: root
-          #     group: root
-          #   '/etc/cfn/hooks.d/amazon-cloudwatch-agent-auto-reloader.conf':
-          #     content: !Sub |
-          #       [cfn-auto-reloader-hook]
-          #       triggers=post.update
-          #       path=Resources.PyramidInstance.Metadata.AWS::CloudFormation::Init.02_config-amazon-cloudwatch-agent
-          #       action=/opt/aws/bin/cfn-init -v --stack ${AWS::StackId} --resource PyramidInstance --region ${AWS::Region} --configsets UpdateEnvironment
-          #       runas=root
-          #     mode: '000400'
-          #     owner: root
-          #     group: root
-          #   "/lib/systemd/system/cfn-hup.service":
-          #     content: |
-          #       [Unit]
-          #       Description=cfn-hup daemon
-          #       [Service]
-          #       Type=simple
-          #       ExecStart=/opt/aws/bin/cfn-hup
-          #       Restart=always
-          #       [Install]
-          #       WantedBy=multi-user.target
-          # commands:
-          #   01enable_cfn_hup:
-          #     command: systemctl enable cfn-hup.service
-          #   02start_cfn_hup:
-          #     command: systemctl start cfn-hup.service
-
         # Definition of json configuration of AmazonCloudWatchAgent
         02_config-amazon-cloudwatch-agent:
           files:
-            /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json:
+            "C:\\ProgramData\\Amazon\\AmazonCloudWatchAgent\\amazon-cloudwatch-agent.json":
               content: !Sub |
                 {
                   "logs": {
@@ -332,76 +260,166 @@ Resources:
                     }
                   }
                 }
-        # Invoke amazon-cloudwatch-agent-ctl to restart the AmazonCloudWatchAgent.
-        # 03_restart_amazon-cloudwatch-agent:
-          # commands:
-          #   01_stop_service:
-          #     command: /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a stop
-          #   02_start_service:
-          #     command: /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
+
+        03_restart_amazon-cloudwatch-agent:
+          commands:
+            01_stop_service:
+              command: powershell -Command "C:\\'Program Files'\\Amazon\\AmazonCloudWatchAgent\\amazon-cloudwatch-agent-ctl.ps1 -a stop"
+            02_start_service:
+              command: powershell -Command "C:\\'Program Files'\\Amazon\\AmazonCloudWatchAgent\\amazon-cloudwatch-agent-ctl.ps1 -a fetch-config -m ec2 -c file:C:\\ProgramData\\Amazon\\AmazonCloudWatchAgent\\amazon-cloudwatch-agent.json -s"
 
         InstallPyramid:
+          files:
+            "C:\\PyramidInstall\\PyramidWindowsInstaller.exe":
+              source: !Ref WindowsPyramidInstallerURL
+
+            "C:\\PyramidInstall\\unattended-install-settings.ps1":
+              content: 
+                param ($baseStackName, $processes="WindowsConnector", $rdsType="PostgreSQL")
+
+                Write-Host "baseStackName=$baseStackName"
+                Write-Host "processes=<$processes>"
+
+                # 
+                # - - 'unattended-install-settings.ps1'
+                #   - !Ref WindowsInstallerURL
+                #   - !Ref BaseStackName
+                #   - !Ref RepositoryType
+                #   - !Ref PyramidProcess
+
+                # given what you want to deploy, what processes do you want to exclude?
+                $ProcessesToExclude = @{}
+                $ProcessesToExclude["Router"] = "winws,winrte,winte,winimdb,winai,windesktop,windnc"
+                $ProcessesToExclude["WebServer"] = "winrte,winte,winrtr,winimdb,winai,windesktop,windnc"
+                $ProcessesToExclude["WebServerAndRouter"] = "winrte,winte,winimdb,winai,windesktop,windnc"
+                $ProcessesToExclude["RuntimeEngine"] = "winws,winte,winrtr,winimdb,winai,windesktop,windnc"
+                $ProcessesToExclude["TaskEngine"] = "winws,winrte,winrtr,winimdb,winai,windesktop,windnc"
+                $ProcessesToExclude["RuntimeEngineAndTaskEngine"] = "winws,winrtr,winimdb,winai,windesktop,windnc"
+                $ProcessesToExclude["RuntimeEngineAndAI"] = "winws,winte,winrtr,winimdb,windesktop,windnc"
+                $ProcessesToExclude["TaskEngineAndAI"] = "winws,winrte,winrtr,winimdb,windesktop,windnc"
+                $ProcessesToExclude["RuntimeAndTaskEngineAndAI"] = "winws,winrtr,winimdb,windesktop,windnc"
+                $ProcessesToExclude["AIServer"] = "winws,winrte,winte,winrtr,winimdb,windeskto,windnc"
+                $ProcessesToExclude["InMemoryDB"] = "winws,winrte,winte,winrtr,winai,windesktop,windnc"
+                $ProcessesToExclude["Nothing"] = "winws,winrte,winte,winrtr,winimdb,winai,windesktop,windnc"
+                $ProcessesToExclude["EverythingExceptInMemoryDB"] = "winimdb,windesktop"
+                $ProcessesToExclude["WindowsConnector"] = "winws,winrte,winte,winrtr,winimdb,winai,windesktop"
+                # only Everything installs the desktop
+                $ProcessesToExclude["Everything"] = ""
+
+
+                try {
+                  # rdsType=`aws ssm get-parameter --name "/Pyramid/$baseStackName/RepositoryDatabaseType" --region $region --output text | cut -f 7`
+                  $rdsType = ( Get-SSMParameter -Name /Pyramid/$baseStackName/RepositoryDatabaseType ).Value
+                }
+                catch {
+                  if  ( $rdsType -eq "" ) {
+                    $rdsType = "PostgreSQL"
+                  }
+                }
+
+
+                $rdsAddress = ( Get-SSMParameter -Name /Pyramid/$baseStackName/RepositoryDatabaseAddress ).Value
+                $rdsPort = ( Get-SSMParameter -Name /Pyramid/$baseStackName/RepositoryDatabasePort ).Value
+                $rdsName = ( Get-SSMParameter -Name /Pyramid/$baseStackName/RepositoryDatabaseName ).Value
+                $rdsUsername = ( Get-SSMParameter -Name /Pyramid/$baseStackName/RepositoryDatabaseUsername ).Value
+
+                $rdsPassword = ( Get-SECSecretValue -SecretId /Pyramid/$baseStackName/RepositoryDatabasePassword ).SecretString
+
+                $initialUsername = ( Get-SSMParameter -Name /Pyramid/$baseStackName/InitialUsername ).Value
+
+                $initialUserPassword = ( Get-SECSecretValue -SecretId /Pyramid/$baseStackName/InitialUserPassword ).SecretString
+
+                switch ( $rdsType )
+                {
+                    "PostgreSQL" {
+                      $databasePrefix = "postgreSql"
+                      $databaseLocation = "pgLocation"
+                      $databaseType = "0"
+                    }
+                    "MicrosoftSQLServer" {
+                      $databasePrefix = "mssql"
+                      $databaseLocation = "msLocation"
+                      $databaseType = "1"
+                    }
+                    default {
+                      Write-Host "invalid database type <$rdsType>"
+                      exit 1
+                    }
+                }
+
+                Write-Host "databasePrefix = <$databasePrefix>"
+
+                $disableComponentsProperty=""
+                if  ( -not ( "$processes" -eq "Everything") ) {
+                  $disableComponentsProperty="disable-components=$($ProcessesToExclude.$processes)"
+                }
+
+                $preamble = @"
+                install-location=$env:ProgramFiles\Pyramid
+                data-location=$env:ProgramFiles\Pyramid\repository
+
+                $disableComponentsProperty
+
+                installation-type=1
+                selectCurrentRepository=$databaseType
+                repositoryChoice=currentremote
+                $databaseLocation=0
+                initUserName=$initialUsername
+                initUserPassword=$initialUserPassword
+                "@
+
+                $iniFile = "C:\PyramidInstall\pyramid-unattended-install.ini"
+                Set-Content -Path $iniFile -Value $preamble
+
+                Add-Content -Path $iniFile -Value $("{0}Host={1}" -f $databasePrefix, $rdsAddress)
+                Add-Content -Path $iniFile -Value $("{0}Port={1}" -f $databasePrefix, $rdsPort)
+                Add-Content -Path $iniFile -Value $("{0}Db={1}" -f $databasePrefix, $rdsName)
+                Add-Content -Path $iniFile -Value $("{0}Username={1}" -f $databasePrefix, $rdsUsername)
+                Add-Content -Path $iniFile -Value $("{0}UserPassword={1}" -f $databasePrefix, $rdsPassword)
+
           commands:
+            0-disable-windows-defender-firewall:
+              command: netsh advfirewall set allprofiles state off
             1-generate-unattended-install-settings:
               command: !Join
                 - ' '
-                - - 'c:\\Pyramid\\unattended-install-settings.ps1'
+                - - 'c:\\PyramidInstall\\unattended-install-settings.ps1'
                   - !Ref BaseStackName
-                  - !Ref RepositoryType
-                  - !Ref AWS::Region
                   - !Ref PyramidProcess
               ignoreErrors: 'false'
-            1-install:
-              cwd: c:\\PyramidInstall
-              command: "for /F %G in ('\"dir /b Pyramid*.exe\"') do c:\\PyramidInstall\\%G --mode unattended --optionfile c:\\PyramidInstall\\pyramid-unattended-cluster-install.ini"
+            2-install:
+              command: "c:\\PyramidInstall\\PyramidWindowsInstaller.exe --mode unattended --optionfile c:\\PyramidInstall\\pyramid-unattended-install.ini"
               ignoreErrors: 'false'
             3-cleanup:
-              command: "rm /usr/src/pyramid/pyramid-unattended-install.ini && rm -f /tmp/pyr*.log && rm -f /tmp/bit*.log"
+              command: "rm -rf C:\\PyramidInstall && rm -f /tmp/pyr*.log && rm -f /tmp/bit*.log"
               ignoreErrors: 'false'
-            4-mount-shared-fs:
-              command: !Join
-                - ' '
-                - - '/usr/src/pyramid/mnt-efs.sh --mountPoint /mnt/pyramid --subnet'
-                  -  !Ref Subnet
-                  - '--baseStackName'
-                  - !Ref BaseStackName
-                  - '--efsRootDirectory /shared'
-                  - '--region'
-                  - !Ref AWS::Region
-              ignoreErrors: 'false'
+            # 4-mount-shared-fs:
+            #   command: !Join
+            #     - ' '
+            #     - - '/usr/src/pyramid/mnt-efs.sh --mountPoint /mnt/pyramid --subnet'
+            #       -  !Ref Subnet
+            #       - '--baseStackName'
+            #       - !Ref BaseStackName
+            #       - '--efsRootDirectory /shared'
+            #       - '--region'
+            #       - !Ref AWS::Region
+            #   ignoreErrors: 'false'
 
     Properties:
       ImageId: !Ref AMIID
       KeyName: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/KeyPairName:1}}'
       IamInstanceProfile: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/PyramidInstanceProfile:1}}'
       InstanceType: !Ref InstanceType
-      SecurityGroupIds: !If
-        - AssignPublicIPCondition
-        - !Ref 'AWS::NoValue'
-        - !Ref WorkloadSecurityGroups
-      SubnetId: !If
-        - AssignPublicIPCondition
-        - !Ref 'AWS::NoValue'
-        - !Ref Subnet
+      SecurityGroupIds: !Ref WorkloadSecurityGroups
+      SubnetId: !Ref Subnet
       InstanceInitiatedShutdownBehavior: !If
         - TerminateInstance
         - terminate
         - stop
-      Monitoring: false
-      DisableApiTermination: false
       BlockDeviceMappings:
         - DeviceName: "/dev/sda1"
           Ebs: 
-            VolumeSize: 20
-      NetworkInterfaces: !If
-        - AssignPublicIPCondition
-        - -
-            AssociatePublicIpAddress: true
-            DeleteOnTermination: true
-            DeviceIndex: '0'
-            GroupSet: !Ref WorkloadSecurityGroups
-            SubnetId: !Ref Subnet
-        - !Ref 'AWS::NoValue'
+            VolumeSize: 30
       UserData:
         Fn::Base64:
           !Join 
@@ -420,61 +438,13 @@ Resources:
               - |
                 # Signal the status from cfn-init
 
-              - 'cfn-signal.exe -e $? '
+              - 'cfn-signal.exe -e %ERRORLEVEL% '
               - !Base64
                 Ref: InstanceWaitHandle
               - |+
 
               - </script>
               - |+
-
-      # UserData: !Base64
-      #   'Fn::Join':
-      #     - ''
-      #     - - |
-      #         Content-Type: multipart/mixed; boundary="//"
-      #         MIME-Version: 1.0
-      #         --//
-      #         Content-Type: text/cloud-config; charset="us-ascii"
-      #         MIME-Version: 1.0
-      #         Content-Transfer-Encoding: 7bit
-      #         Content-Disposition: attachment; filename="cloud-config.txt"
-      #         #cloud-config
-      #         cloud_final_modules:
-      #         [scripts-user, always]
-      #         --//
-      #         Content-Type: text/x-shellscript; charset="us-ascii"
-      #         MIME-Version: 1.0
-      #         Content-Transfer-Encoding: 7bit
-      #         Content-Disposition: attachment; filename="userdata.txt"
-      #         #!/bin/bash -xe
-
-      #         # run cfn-init
-
-      #       - '/opt/aws/bin/cfn-init -v  --configsets default --stack '
-      #       - !Ref 'AWS::StackName'
-      #       - ' --resource PyramidInstance --region '
-      #       - !Ref 'AWS::Region'
-      #       - |+
-
-      #       - |
-      #         # Signal the status from cfn-init
-
-      #       - '/opt/aws/bin/cfn-signal -e $? '
-      #       - !Base64
-      #         Ref: InstanceWaitHandle
-      #       - |+
-
-      #       - |
-      #         # If asked, halt and catch fire
-
-      #       - 'if [ '''
-      #       - !Ref RunOnce
-      #       - ''' = ''true'' ] ; then /sbin/halt -p; fi'
-      #       - |+
-
-      #       - ''
-      #       - |+
 
       Tags:
         - Key: Name
@@ -486,7 +456,7 @@ Resources:
         - Key: Contents
           Value: !Sub '${InstancePurpose}'
 
-Outputs:
+# Outputs:
   # RDSAddress:
   #   Description: Database domain name
   #   Value: !Ref RDSAddress
@@ -499,10 +469,10 @@ Outputs:
   # InitialPassword:
   #   Value: !Ref InitialUserPassword
   #   Description: Initial user password
-  PublicDNSName:
-    Value: !GetAtt PyramidInstance.PublicDnsName
-    Description: Instance Public DNS name
-  PrivateDNSName:
-    Value: !GetAtt PyramidInstance.PrivateDnsName
-    Description: Instance Private DNS name
+  # PublicDNSName:
+  #   Value: !GetAtt PyramidInstance.PublicDnsName
+  #   Description: Instance Public DNS name
+  # PrivateDNSName:
+  #   Value: !GetAtt PyramidInstance.PrivateDnsName
+  #   Description: Instance Private DNS name
 

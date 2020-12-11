@@ -21,10 +21,9 @@ Metadata:
       - Label:
           default: New Repository Database Service
         Parameters:
-          - RDSAddress
-          - NewRDSServiceMode
+          - RDSDeploymentType
+          - RDSServiceName
           - NewRDSSubnets
-          - RDSPort
           - RDSUser
           - RDSPassword
           - RDSName
@@ -42,15 +41,13 @@ Metadata:
         default: HTTP/HTTPS CIDR
       AllowSSHSecurityGroup:
         default: SSH Security Group ID
-      RDSAddress:
-        default: New PostgreSQL RDS Cluster name
-      NewRDSServiceMode:
-        default: New RDS service mode
+      RDSDeploymentType:
+        default: RDS Deployment type
+      RDSServiceName:
+        default: New RDS service name
       NewRDSSubnets:
         default: >-
           New RDS service subnets
-      RDSPort:
-        default: RDS database port
       RDSUser:
         default: RDS database user name
       RDSPassword:
@@ -131,22 +128,31 @@ Parameters:
     Default: ''
     MaxLength: '128'
     AllowedPattern: '^$|sg-[a-f0-9]{6,17}$'
-  RDSAddress:
+  RDSDeploymentType:
+    Description: RDS deployment type
+    Type: String
+    Default: PostgreSQL-Cluster-Aurora
+    AllowedValues:
+      - PostgreSQL-Cluster-Aurora
+      - PostgreSQL-Cluster
+      - PostgreSQL
+      - Microsoft-SQL-Server
+  RDSServiceName:
     Description: >-
-      Cluster name of new PostgreSQL RDS service (ie. pyramid)
+      Name of the new RDS service (ie. pyramid)
     Type: String
     MinLength: '5'
     MaxLength: '128'
     AllowedPattern: '[a-zA-Z][-_a-zA-Z0-9]*'
     ConstraintDescription: >-
       Min 5 characters. First character must be a letter. Must contain only letters, digits, '-' or underscores.
-  NewRDSServiceMode:
-    Description: Database Engine Mode
-    Type: String
-    Default: serverless
-    AllowedValues:
-      - serverless
-      - provisioned
+  # NewRDSServiceMode:
+  #   Description: Database Engine Mode
+  #   Type: String
+  #   Default: serverless
+  #   AllowedValues:
+  #     - serverless
+  #     - provisioned
   NewRDSSubnets:
     Description: Subnets to deploy the new PostgreSQL RDS cluster into.  At least 2 must be entered, even when using existing
           service.
@@ -175,12 +181,12 @@ Parameters:
     ConstraintDescription: >-
       Min 8 characters. Can contain only alphanumeric characters, minus and
       underscores.
-  RDSPort:
-    Description: RDS Port
-    Type: Number
-    Default: '5432'
-    MinValue: '1024'
-    ConstraintDescription: Port number must be higher than 1024
+  # RDSPort:
+  #   Description: RDS Port
+  #   Type: Number
+  #   Default: '5432'
+  #   MinValue: '1024'
+  #   ConstraintDescription: Port number must be higher than 1024
   RDSName:
     Description: Repository database name in the RDS service.
     Type: String
@@ -223,6 +229,13 @@ Parameters:
     ConstraintDescription: >-
       Optional. Otherwise min 5 characters. First character must be a letter. Must contain only letters, digits, '/', '-', '_', '=', '*' or parentheses.
 Mappings:
+  DatabasePorts:
+    All:
+      PostgreSQL-Cluster-Aurora: 5432
+      PostgreSQL-Cluster: 5432
+      PostgreSQL: 5432
+      Microsoft-SQL-Server: 1433
+
   AWSAMIRegionMap:
     us-east-1:
       # 2020.13.100
@@ -287,6 +300,11 @@ Rules:
                 - VpcId
             - 'Fn::RefAll': 'AWS::EC2::VPC::Id'
         AssertDescription: All subnets must be in the same VPC
+
+Conditions:
+  DatabaseTypeIsMicrosoft: !Equals
+    - !Ref RDSDeploymentType
+    - 'Microsoft-SQL-Server'
 
 Resources:
 
@@ -441,16 +459,18 @@ Resources:
     UpdateReplacePolicy: Retain
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14-autoscaling/pyramid-aurora-postgres.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14-autoscaling/pyramid-repository-database.yaml
       Parameters:
         VPCID: !Ref VPCID
         SubnetIds: !Join 
           - ','
           - !Ref NewRDSSubnets
         DBAccessCIDR: !GetAtt CidrOfVpc.CidrBlock
-        ClusterName: !Ref RDSAddress
-        DBEngineMode: !Ref NewRDSServiceMode
-        DBPort: !Ref RDSPort
+        DBServiceName: !Ref RDSServiceName
+        DBPort: !FindInMap
+          - !Ref DatabasePorts
+          - All
+          - !Ref RDSDeploymentType
         DBMasterUsername: !Ref RDSUser
         DBMasterUserPassword: !Ref RDSPassword
 
@@ -458,7 +478,7 @@ Resources:
     Type: 'AWS::CloudFormation::Stack'
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14-autoscaling/pyramid-central-instance.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14-autoscaling/pyramid-repository-database.yaml
       Parameters:
         AMIID: !FindInMap 
           - AWSAMIRegionMap
@@ -474,9 +494,15 @@ Resources:
         AllowSSHSecurityGroup: !Ref AllowSSHSecurityGroup
         InitialUsername: !Ref InitialUsername
         InitialUserPassword: !Ref InitialUserPassword
-        RDSType: PostgreSQL
-        RDSAddress: !GetAtt CreateRepositoryDatabaseService.Outputs.RDSEndPointAddress
-        RDSPort: !Ref RDSPort
+        RDSDeploymentType: !If
+          - DatabaseTypeIsMicrosoft
+          - MicrosoftSQLServer
+          - PostgreSQL
+        RDSServiceName: !GetAtt CreateRepositoryDatabaseService.Outputs.RDSEndPointAddress
+        RDSPort: !FindInMap
+          - !Ref DatabasePorts
+          - All
+          - !Ref RDSDeploymentType
         RDSName: !Ref RDSName
         RDSUser: !Ref RDSUser
         RDSPassword: !Ref RDSPassword
@@ -521,7 +547,10 @@ Outputs:
     Value: !GetAtt CreateRepositoryDatabaseService.Outputs.RDSEndPointAddress
     Description: Repository database address
   RepositoryDatabasePort:
-    Value: !Ref RDSPort
+    Value: !FindInMap
+      - !Ref DatabasePorts
+      - All
+      - !Ref RDSDeploymentType
     Description: Repository database port
   RepositoryDatabaseUsername:
     Value: !Ref RDSUser
