@@ -385,7 +385,7 @@ Resources:
                 - ''
                 - - '[[ ''Everything,InMemoryDB'' == *"'
                   - !Ref PyramidProcess
-                  - '"*'
+                  - '"* ]]'
               command: !Join
                 - ' '
                 - - '/usr/src/pyramid/mnt-imdb.sh'
