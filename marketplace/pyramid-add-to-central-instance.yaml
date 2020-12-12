@@ -16,7 +16,7 @@ Metadata:
           - AssignPublicIP
     ParameterLabels:
       BaseStackName:
-        default: Stack Name of base single instance stack
+        default: Stack Name of Central instance stack
       Subnet:
         default: Subnet for Pyramid instance
       InstanceType:
@@ -30,7 +30,7 @@ Parameters:
     Description: Subnet for instance within VPC of the original single instance Stack
     Type: 'AWS::EC2::Subnet::Id'
   BaseStackName:
-    Description: StackName of the original single instance deployment being added onto.
+    Description: StackName of a Central instance deployment being added onto.
     Type: String
     MinLength: '1'
     ConstraintDescription: Required
