@@ -398,6 +398,7 @@ Resources:
                   - !Ref Subnet
                   - '--region'
                   - !Ref 'AWS::Region'
+                  - '--initialize true'
               ignoreErrors: 'false'
 
         StartNginx:
@@ -515,20 +516,11 @@ Resources:
           Value: !Sub '${InstancePurpose}'
 
 Outputs:
-  # RDSAddress:
-  #   Description: Database domain name
-  #   Value: !Ref RDSAddress
-  # PyramidRDSName:
-  #   Description: Pyramid database name
-  #   Value: !Ref RDSName
-  # InitialUsername:
-  #   Value: !Ref InitialUsername
-  #   Description: Initial user name
-  # InitialPassword:
-  #   Value: !Ref InitialUserPassword
-  #   Description: Initial user password
   PublicDNSName:
-    Value: !GetAtt PyramidInstance.PublicDnsName
+    Value: !If
+      - AssignPublicIPCondition
+      - !GetAtt PyramidInstance.PublicDnsName
+      - ''
     Description: Instance Public DNS name
   PrivateDNSName:
     Value: !GetAtt PyramidInstance.PrivateDnsName

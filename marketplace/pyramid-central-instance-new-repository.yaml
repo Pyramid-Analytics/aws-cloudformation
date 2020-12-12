@@ -14,6 +14,7 @@ Metadata:
           - Subnet
           - InstanceType
           - KeyPairName
+          - AssignPublicIP
           - HTTPAccessCIDR
           - AllowSSHSecurityGroup
           - InitialUsername
@@ -38,6 +39,8 @@ Metadata:
         default: Subnet for Pyramid instance
       InstanceType:
         default: Instance type
+      AssignPublicIP:
+        default: Assign public IP and domain name
       HTTPAccessCIDR:
         default: HTTP/HTTPS CIDR
       AllowSSHSecurityGroup:
@@ -113,6 +116,15 @@ Parameters:
       - c5n.12xlarge
     Default: c5.4xlarge
     ConstraintDescription: Must be a valid instance type for region.
+  AssignPublicIP:
+    Description: >-
+      Assign public IP address and domain.
+    Type: String
+    Default: true
+    AllowedValues:
+      - true
+      - false
+    ConstraintDescription: Required
   HTTPAccessCIDR:
     AllowedPattern: >-
       ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/([0-9]|[1-2][0-9]|3[0-2]))$
@@ -225,44 +237,41 @@ Parameters:
 Mappings:
   AWSAMIRegionMap:
     us-east-1:
-      # 2020.13.100
-      # '64': ami-029d57f27fac5962a
-      # 2020.14.035
-      '64': ami-04708aafb77fcf566
+      '64': ami-041118ae556bd4576
     us-east-2:
-      '64': XXX
+      '64': ami-08e9488997b77008b
     us-west-1:
-      '64': XXX
+      '64': ami-08bbf85446b9b8bae
     us-west-2:
-      '64': XXX
+      '64': ami-066d2df7eab59c767
     ca-central-1:
-      '64': XXX
+      '64': ami-038edeb82d485e2ff
     eu-central-1:
-      '64': XXX
+      '64': ami-05c20822282b54536
     eu-west-1:
-      '64': XXX
+      '64': ami-043f5b68498932e5a
     eu-west-2:
-      '64': XXX
+      '64': ami-0547b6b43ce929de7
     eu-west-3:
-      '64': XXX
+      '64': ami-0ef703c1dadffd700
     eu-north-1:
-      '64': XXX
+      '64': ami-0c1a149f26940fbfe
     ap-southeast-1:
-      '64': XXX
+      '64': ami-03e8d4d808297f489
     ap-southeast-2:
-      '64': XXX
+      '64': ami-0a6f958aa6ada9f8b
     ap-south-1:
-      '64': XXX
+      '64': ami-046a4e4da7b3f87e6
     ap-northeast-1:
-      '64': XXX
+      '64': ami-0e5a1925d67036bd4
     ap-northeast-2:
-      '64': XXX
+      '64': ami-0e0e72548265415a7
     sa-east-1:
-      '64': XXX
+      '64': ami-0a151507bd48d0202
     us-gov-east-1:
-      '64': XXX
+      '64': ami-032ee6cd41acc8161
     us-gov-west-1:
-      '64': XXX
+      '64': ami-0cf6eaad451cc77af
 Rules:
   SubnetsNotEmpty:
     Assertions:
@@ -288,15 +297,12 @@ Rules:
             - 'Fn::RefAll': 'AWS::EC2::VPC::Id'
         AssertDescription: All subnets must be in the same VPC
 
-Resources:
+Conditions:
+  PublicIP: !Equals
+    - !Ref AssignPublicIP
+    - 'true'
 
-  # CIDRofVPCLambda:
-  #   Type: 'AWS::CloudFormation::Stack'
-  #   Properties:
-  #     TemplateURL: >-
-  #       https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14/pyramid-cidr-lambda.yaml
-  #     Parameters:
-  #       BaseStackName: !Ref 'AWS::StackName'
+Resources:
 
   CidrOfVpcRole:
     Type: 'AWS::IAM::Role'
@@ -478,6 +484,7 @@ Resources:
         Subnet: !Ref Subnet
         VPCCIDR: !GetAtt CidrOfVpc.CidrBlock
         KeyPairName: !Ref KeyPairName
+        AssignPublicIP: !Ref AssignPublicIP
         HTTPAccessCIDR: !Ref HTTPAccessCIDR
         AllowSSHSecurityGroup: !Ref AllowSSHSecurityGroup
         InitialUsername: !Ref InitialUsername
@@ -492,7 +499,13 @@ Resources:
 
 Outputs:
   PyramidPublicURL:
-    Value: !GetAtt CentralInstance.Outputs.PyramidPublicURL
+    Value: !If
+      - PublicIP
+      - !Join
+        - ''
+        - - 'http://'
+          - !GetAtt CentralInstance.Outputs.PublicDNSName
+      - 'No public URL'
     Description: Pyramid Public URL
   PrivateDNSName:
     Value: !GetAtt CentralInstance.Outputs.PrivateDNSName
