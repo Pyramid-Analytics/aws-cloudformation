@@ -1,5 +1,7 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: "AWS Aurora Postgres, Do Not Remove Apache License Version 2.0 (qs-1pj6s43e3) July,23,2019"
+Description: >-
+  Create a database service for the Pyramid repository.
+  Includes AWS Aurora Postgres, Do Not Remove Apache License Version 2.0 (qs-1pj6s43e3) July,23,2019"
 Metadata:
   LICENSE: Apache License Version 2.0
   AWS::CloudFormation::Interface:
@@ -17,9 +19,8 @@ Metadata:
       - DBServiceName
       - DBAutoMinorVersionUpgrade
       - DBBackupRetentionPeriod
-      - DBEngineVersion
-      - DBInstanceClass
-      - DBPort
+      # - DBInstanceClass
+      # - DBPort
       - DBAllocatedStorageEncrypted
       - DBMasterUsername
       - DBMasterUserPassword
@@ -54,24 +55,24 @@ Parameters:
   RDSDeploymentType:
     Description: Database type
     Type: String
-    Default: PostgreSQL-Cluster-Aurora
+    Default: PostgreSQLAuroraServerless
     AllowedValues:
-      - PostgreSQL-Cluster-Aurora
-      - PostgreSQL-Cluster
+      - PostgreSQLAuroraServerless
+      - PostgreSQLAurora
       - PostgreSQL
-      - Microsoft-SQL-Server
+      - MicrosoftSQLServer
   DBAllocatedStorageEncrypted:
-    Default: "true"
+    Default: true
     AllowedValues:
-      - "true"
-      - "false"
+      - true
+      - false
     Description: Whether or not to encrypt the database.
     Type: String
   DBAutoMinorVersionUpgrade: 
     AllowedValues: 
-      - "true"
-      - "false"
-    Default: "true"
+      - true
+      - false
+    Default: true
     Description: "Select true to set up auto minor version upgrade."
     Type: String
   DBBackupRetentionPeriod: 
@@ -99,24 +100,24 @@ Parameters:
   #   AllowedValues:
   #     - serverless
   #     - provisioned
-  DBInstanceClass:
-    AllowedValues:
-      - db.r5.large
-      - db.r5.xlarge
-      - db.r5.2xlarge
-      - db.r5.4xlarge
-      - db.r5.12xlarge
-      - db.r5.24xlarge
-      - db.r4.large
-      - db.r4.xlarge
-      - db.r4.2xlarge
-      - db.r4.4xlarge
-      - db.r4.8xlarge
-      - db.r4.16xlarge
-    ConstraintDescription: "If not serverless, select a valid database instance type."
-    Default: db.r5.large
-    Description: "The name of the compute and memory capacity class of the database instance."
-    Type: String
+  # DBInstanceClass:
+  #   AllowedValues:
+  #     - db.r5.large
+  #     - db.r5.xlarge
+  #     - db.r5.2xlarge
+  #     - db.r5.4xlarge
+  #     - db.r5.12xlarge
+  #     - db.r5.24xlarge
+  #     - db.r4.large
+  #     - db.r4.xlarge
+  #     - db.r4.2xlarge
+  #     - db.r4.4xlarge
+  #     - db.r4.8xlarge
+  #     - db.r4.16xlarge
+  #   ConstraintDescription: "If not serverless, select a valid database instance type."
+  #   Default: db.r5.large
+  #   Description: "The name of the compute and memory capacity class of the database instance."
+  #   Type: String
   DBAccessCIDR:
     AllowedPattern: "(^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\\/([0-9]|[1-2][0-9]|3[0-2]))$)?"
     ConstraintDescription: "CIDR block parameter must be in the form x.x.x.x/x"
@@ -130,7 +131,7 @@ Parameters:
     Description: "The database admin account password."
     MaxLength: "64"
     MinLength: "8"
-    NoEcho: "True"
+    NoEcho: true
     Type: String
   DBMasterUsername: 
     AllowedPattern: "[a-zA-Z][a-zA-Z0-9]*"
@@ -140,16 +141,16 @@ Parameters:
     MaxLength: "16"
     MinLength: "1"
     Type: String
-  DBPort:
-    Default: 5432
-    Description: "The port the instance will listen for connections on."
-    Type: Number
-    ConstraintDescription: 'Must be in the range [1115-65535].'
-    MinValue: 1150
-    MaxValue: 65535
+  # DBPort:
+  #   Default: 5432
+  #   Description: "The port the instance will listen for connections on."
+  #   Type: Number
+  #   ConstraintDescription: 'Must be in the range [1115-65535].'
+  #   MinValue: 1150
+  #   MaxValue: 65535
   DBServiceName: 
     AllowedPattern: "[-_a-zA-Z0-9]*"
-    Description: "Name of the Amazon Aurora cluster. Will default if not entered"
+    Description: "Name of the RDS service. Will default if not entered"
     MaxLength: "64"
     Default: ''
     Type: String
@@ -161,95 +162,34 @@ Parameters:
     Type: 'AWS::EC2::VPC::Id'
 
 Mappings:
-  # PostgreSQLDBEngineVersion:
-  #   Description: Select Database Engine Version
-  #   Type: String
-  #   Default: 10.7
-  #   AllowedValues:
-  #     - 9.6.9
-  #     - 9.6.11
-  #     - 9.6.12
-  #     - 10.5
-  #     - 10.6
-  #     - 10.7
-  #     - 11.4
-  #     - 11.6
-  #     - 11.7
-  # DBEngineMode:
-  #   Description: Database Engine Mode
-  #   Type: String
-  #   Default: serverless
-  #   AllowedValues:
-  #     - serverless
-  #     - provisioned
-
-  # AuroraPostgreSQLDBFamilyMap:
-  #   "9.6.9":
-  #     "family": "aurora-postgresql9.6"
-  #   "9.6.11":
-  #     "family": "aurora-postgresql9.6"
-  #   "9.6.12":
-  #     "family": "aurora-postgresql9.6"
-  #   "10.5":
-  #     "family": "aurora-postgresql10"
-  #   "10.6":
-  #     "family": "aurora-postgresql10"
-  #   "10.7":
-  #     "family": "aurora-postgresql10"
-  #   "11.4":
-  #     "family": "aurora-postgresql11"
-  #   "11.6":
-  #     "family": "aurora-postgresql11"
-  #   "11.7":
-  #     "family": "aurora-postgresql11"
-
-  # PostgreSQLDBFamilyMap:
-  #   "9.6.9":
-  #     "family": "postgresql9.6"
-  #   "9.6.11":
-  #     "family": "postgresql9.6"
-  #   "9.6.12":
-  #     "family": "postgresql9.6"
-  #   "10.5":
-  #     "family": "postgresql10"
-  #   "10.6":
-  #     "family": "postgresql10"
-  #   "10.7":
-  #     "family": "postgresql10"
-  #   "11.4":
-  #     "family": "postgresql11"
-  #   "11.6":
-  #     "family": "postgresql11"
-  #   "11.7":
-  #     "family": "postgresql11"
-
-# sqlserver-se-11.0
-# up to
-# sqlserver-se-15.0
-
-  # SQLServerSEDBFamilyMap:
-  #   "9.6.9":
-  #     "family": "sqlserver-se-11.0"
-  #   "9.6.11":
-  #     "family": "sqlserver-se-12.0"
-  #   "9.6.12":
-  #     "family": "sqlserver-se-13.0"
-  #   "10.5":
-  #     "family": "sqlserver-se-14.0"
-  #   "10.6":
-  #     "family": "sqlserver-se-15.0"
 
   DBConfiguration:
+    clusterEngine:
+      PostgreSQLAuroraServerless: aurora-postgresql
+      PostgreSQLAurora: aurora-postgresql
+    clusterFamily:
+      PostgreSQLAuroraServerless: aurora-postgresql10
+      PostgreSQLAurora: aurora-postgresql11
     engine:
-      PostgreSQL-Aurora-Serverless: aurora-postgresql
-      PostgreSQL-Aurora: aurora-postgresql
+      PostgreSQLAuroraServerless: aurora-postgresql
+      PostgreSQLAurora: postgres
       PostgreSQL: postgres
-      Microsoft-SQL-Server: sqlserver-se
+      MicrosoftSQLServer: sqlserver-se
     family:
-      PostgreSQL-Aurora-Serverless: aurora-postgresql11
-      PostgreSQL-Aurora: aurora-postgresql11
+      PostgreSQLAuroraServerless: aurora-postgresql10
+      PostgreSQLAurora: postgresql11
       PostgreSQL: postgresql11
-      Microsoft-SQL-Server: sqlserver-se-15.0
+      MicrosoftSQLServer: sqlserver-se-15.0
+    instanceType:
+      PostgreSQLAuroraServerless: no-instance-type
+      PostgreSQLAurora: db.m5.xlarge
+      PostgreSQL: db.m5.xlarge
+      MicrosoftSQLServer: db.m5.xlarge
+    port:
+      PostgreSQLAuroraServerless: '5432'
+      PostgreSQLAurora: '5432'
+      PostgreSQL: '5432'
+      MicrosoftSQLServer: '1433'
 
 Rules:
   SubnetsInVPC:
@@ -263,29 +203,27 @@ Rules:
         AssertDescription: All subnets must in the same VPC
 
 Conditions: 
-      # - PostgreSQL-Aurora-Serverless
-      # - PostgreSQL-Aurora
-      # - PostgreSQL
-      # - Microsoft-SQL-Server
   PostgreSQLAuroraServerless: !Equals 
     - !Ref RDSDeploymentType
-    - PostgreSQL-Aurora-Serverless
+    - PostgreSQLAuroraServerless
   PostgreSQLAuroraProvisioned: !Equals
     - !Ref RDSDeploymentType
-    - PostgreSQL-Aurora
+    - PostgreSQLAurora
   IsPostgreSQLAurora: !Or 
-    - PostgreSQLAuroraServerless
-    - PostgreSQLAuroraProvisioned
+    - !Condition PostgreSQLAuroraServerless
+    - !Condition PostgreSQLAuroraProvisioned
 
   SQLServer: !Equals
     - !Ref RDSDeploymentType
-    - Microsoft-SQL-Server
+    - MicrosoftSQLServer
 
-  NotPostgreSQLAurora: !Not
-    - IsPostgreSQLAurora
+  PostgreSQLStandalone: !Equals
+    - !Ref RDSDeploymentType
+    - PostgreSQL
+
 
   StandaloneInstance: !Not
-    - PostgreSQLAuroraServerless
+    - !Condition PostgreSQLAuroraServerless
 
   UseDatabaseEncryption: !Equals
     - !Ref DBAllocatedStorageEncrypted
@@ -301,7 +239,7 @@ Resources:
     Properties:
       KeyPolicy:
         Version: 2012-10-17
-        Id: !Ref "AWS::StackName"
+        Id: !Sub "${AWS::StackName}-rds"
         Statement:
           - Effect: Allow
             Principal:
@@ -317,40 +255,35 @@ Resources:
     Type: AWS::KMS::Alias
     Condition: UseDatabaseEncryption
     Properties:
-      AliasName: !Sub "alias/${AWS::StackName}"
+      AliasName: !Sub "alias/${AWS::StackName}-rds"
       TargetKeyId: !Ref EncryptionKey
 
   PostgreSQLDBParamGroup:
     Type: AWS::RDS::DBParameterGroup
-    Condition: NotPostgreSQLAurora
+    Condition: PostgreSQLStandalone
     Properties:
       Description: !Join [ "- ", [ "Repository database",  !Ref RDSDeploymentType, "for Stack", !Ref 'AWS::StackName' ] ]
-      Family: !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "family"]
+      Family: !FindInMap [DBConfiguration, "family", !Ref RDSDeploymentType]
       Parameters:
-        rds.force_ssl: 0
+        # rds.force_ssl: 0
         log_rotation_age: '1440'
         log_rotation_size: '102400'
-# !FindInMap
-#         - Engines
-#         - All 
-#         - !Ref RDSDeploymentType
+
   SQLServerDBParamGroup:
     Type: AWS::RDS::DBParameterGroup
     Condition: SQLServer
     Properties:
       Description: !Join [ "- ", [ "Repository database",  !Ref RDSDeploymentType, "for Stack", !Ref 'AWS::StackName' ] ]
-      Family: !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "family"]
+      Family: !FindInMap [DBConfiguration, "family", !Ref RDSDeploymentType]
       Parameters:
         rds.force_ssl: 0
-        log_rotation_age: '1440'
-        log_rotation_size: '102400'
 
   DBClusterParameterGroup:
     Type: AWS::RDS::DBClusterParameterGroup
     Condition: IsPostgreSQLAurora
     Properties:
       Description: !Join [ "- ", [ "Repository database",  !Ref RDSDeploymentType, "for Stack", !Ref 'AWS::StackName' ] ]
-      Family: !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "family"]
+      Family: !FindInMap [DBConfiguration, "clusterFamily", !Ref RDSDeploymentType]
       Parameters:
         rds.force_ssl: 0
         log_rotation_age: '1440'
@@ -362,10 +295,10 @@ Resources:
     Properties:
       BackupRetentionPeriod: !Ref DBBackupRetentionPeriod
       DBClusterParameterGroupName: !Ref DBClusterParameterGroup
-      DBSubnetGroupName: !Ref AuroraDBSubnetGroup
+      DBSubnetGroupName: !Ref DBSubnetGroup
       DBClusterIdentifier: !Ref DBServiceName
-      Engine: aurora-postgresql
-      # EngineVersion: !Ref DBEngineVersion
+      Engine: !FindInMap [DBConfiguration, "clusterEngine", !Ref RDSDeploymentType]
+      # EngineVersion: !FindInMap [DBConfiguration, "engineVersion", !Ref RDSDeploymentType]
       EngineMode: !If 
         - PostgreSQLAuroraServerless
         - serverless
@@ -373,7 +306,7 @@ Resources:
       KmsKeyId: !If [UseDatabaseEncryption, !GetAtt EncryptionKey.Arn, !Ref 'AWS::NoValue']
       MasterUserPassword: !Ref DBMasterUserPassword
       MasterUsername: !Ref DBMasterUsername
-      Port: !Ref DBPort
+      Port: !FindInMap [DBConfiguration, "port", !Ref RDSDeploymentType]
       StorageEncrypted: !If [UseDatabaseEncryption, !Ref DBAllocatedStorageEncrypted, !Ref 'AWS::NoValue']
       Tags: 
         - 
@@ -393,17 +326,21 @@ Resources:
       DBInstanceIdentifier: !If
         - IsPostgreSQLAurora
         - !Ref AWS::NoValue
-        - !Sub "${DBName}-DB1"
-      DBInstanceClass: !Ref DBInstanceClass
-      Engine: !FindInMap
-        - DBConfiguration
-        - Engine 
-        - !Ref RDSDeploymentType
-      # EngineVersion: !Ref DBEngineVersion
+        - !Sub "${DBServiceName}-DB1"
+      DBInstanceClass: !FindInMap [DBConfiguration, "instanceType", !Ref RDSDeploymentType]
+      Engine: !FindInMap [DBConfiguration, "engine", !Ref RDSDeploymentType]
+      # EngineVersion: !FindInMap [DBConfiguration, "engineVersion", !Ref RDSDeploymentType]
+      Port: !If
+        - IsPostgreSQLAurora
+        - !Ref AWS::NoValue
+        - !FindInMap [DBConfiguration, "port", !Ref RDSDeploymentType]
       DBParameterGroupName: !If
-        - SQLServer
-        - !Ref SQLServerDBParamGroup
-        - !Ref PostgreSQLDBParamGroup
+        - IsPostgreSQLAurora
+        - !Ref 'AWS::NoValue'
+        - !If
+          - SQLServer
+          - !Ref SQLServerDBParamGroup
+          - !Ref PostgreSQLDBParamGroup
       PubliclyAccessible: false
       Tags:
         -
@@ -422,17 +359,21 @@ Resources:
       DBInstanceIdentifier: !If
         - IsPostgreSQLAurora
         - !Ref AWS::NoValue
-        - !Sub "${DBName}-DB2"
-      DBInstanceClass: !Ref DBInstanceClass
-      Engine: !FindInMap
-        - DBConfiguration
-        - Engine 
-        - !Ref RDSDeploymentType
-      # EngineVersion: !Ref DBEngineVersion
+        - !Sub "${DBServiceName}-DB2"
+      DBInstanceClass: !FindInMap [DBConfiguration, "instanceType", !Ref RDSDeploymentType]
+      Engine: !FindInMap [DBConfiguration, "engine", !Ref RDSDeploymentType]
+      # EngineVersion: !FindInMap [DBConfiguration, "engineVersion", !Ref RDSDeploymentType]
+      Port: !If
+        - IsPostgreSQLAurora
+        - !Ref AWS::NoValue
+        - !FindInMap [DBConfiguration, "port", !Ref RDSDeploymentType]
       DBParameterGroupName: !If
-        - SQLServer
-        - !Ref SQLServerDBParamGroup
-        - !Ref PostgreSQLDBParamGroup
+        - IsPostgreSQLAurora
+        - !Ref 'AWS::NoValue'
+        - !If
+          - SQLServer
+          - !Ref SQLServerDBParamGroup
+          - !Ref PostgreSQLDBParamGroup
       PubliclyAccessible: false
       Tags:
         -
@@ -474,8 +415,8 @@ Resources:
       GroupId: !GetAtt 'RDSSecurityGroup.GroupId'
       CidrIp: !Ref DBAccessCIDR 
       IpProtocol: tcp
-      FromPort: !Ref DBPort
-      ToPort: !Ref DBPort
+      FromPort: !FindInMap [DBConfiguration, "port", !Ref RDSDeploymentType]
+      ToPort: !FindInMap [DBConfiguration, "port", !Ref RDSDeploymentType]
 
 Outputs:
   DBMasterUsername:
@@ -483,13 +424,22 @@ Outputs:
     Value: !Ref DBMasterUsername
   RDSEndPointAddress: 
     Description: "Repository database endpoint"
-    Value: !Sub ${AuroraDBCluster.Endpoint.Address}
+    Value: !If
+      - StandaloneInstance
+      - !Sub ${DB1.Endpoint.Address}
+      - !Sub ${AuroraDBCluster.Endpoint.Address}
   RDSEndPointPort: 
     Description: "Repository database port"
-    Value: !Sub ${AuroraDBCluster.Endpoint.Port}
+    Value: !If
+      - StandaloneInstance
+      - !Sub ${DB1.Endpoint.Port}
+      - !Sub ${AuroraDBCluster.Endpoint.Port}
   RDSEndPoint: 
     Description: "Full Repository database endpoint"
-    Value: !Sub ${AuroraDBCluster.Endpoint.Address}:${AuroraDBCluster.Endpoint.Port}
+    Value: !If
+      - StandaloneInstance
+      - !Sub ${DB1.Endpoint.Address}:${DB1.Endpoint.Port}
+      - !Sub ${AuroraDBCluster.Endpoint.Address}:${AuroraDBCluster.Endpoint.Port}
   RDSSecurityGroup: 
     Description: Security group for access to cluster
     Value: !Ref RDSSecurityGroup
