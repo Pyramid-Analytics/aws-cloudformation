@@ -42,6 +42,12 @@ TOKEN=`curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metad
 
 region=`curl -H "X-aws-ec2-metadata-token: $TOKEN" -s http://169.254.169.254/latest/dynamic/instance-identity/document | grep -oP '\"region\"[[:space:]]*:[[:space:]]*\"\K[^\"]+'`
 
+# network problem?
+if [ -z "${region}" ] ; then
+  echo "instance-identity/document failed. network problem?"
+  exit 1
+fi
+
 echo "baseStackName=${baseStackName}"
 echo "repositoryType=${repositoryType}"
 echo "region=${region}"
@@ -54,11 +60,21 @@ if [[ -z "${rdsType}" ]] ; then
 fi
 
 rdsAddress=`aws ssm get-parameter --name "/Pyramid/$baseStackName/RepositoryDatabaseAddress" --region $region --output text | cut -f 7`
+
+if [ -z "${rdsAddress}" ] ; then
+  echo "get-parameter /Pyramid/$baseStackName/RepositoryDatabaseAddress failed. IAM for SSM access problem?"
+  exit 1
+fi
+
 rdsPort=`aws ssm get-parameter --name "/Pyramid/$baseStackName/RepositoryDatabasePort" --region $region --output text | cut -f 7`
 rdsName=`aws ssm get-parameter --name "/Pyramid/$baseStackName/RepositoryDatabaseName" --region $region --output text | cut -f 7`
 rdsUsername=`aws ssm get-parameter --name "/Pyramid/$baseStackName/RepositoryDatabaseUsername" --region $region --output text | cut -f 7`
 
 rdsPassword=`aws secretsmanager get-secret-value --secret-id /Pyramid/$baseStackName/RepositoryDatabasePassword --region $region --output text | cut -f 4`
+if [ -z "${rdsPassword}" ] ; then
+  echo "get-secret-value /Pyramid/$baseStackName/RepositoryDatabasePassword failed. IAM for Secrets access problem?"
+  exit 1
+fi
 
 initialUsername=`aws ssm get-parameter --name "/Pyramid/$baseStackName/InitialUsername" --region $region --output text | cut -f 7`
 initialUserPassword=`aws secretsmanager get-secret-value --secret-id /Pyramid/$baseStackName/InitialUserPassword --region $region --output text | cut -f 4`
