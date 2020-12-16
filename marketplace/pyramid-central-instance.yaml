@@ -864,7 +864,7 @@ Resources:
 
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14/pyramid-single-instance.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14-HF-1/pyramid-single-instance.yaml
       Parameters:
         AMIID: !Ref AMIID
         BaseStackName: !Ref BaseStackName

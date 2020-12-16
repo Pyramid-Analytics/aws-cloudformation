@@ -237,41 +237,41 @@ Parameters:
 Mappings:
   AWSAMIRegionMap:
     us-east-1:
-      '64': ami-041118ae556bd4576
+      '64': ami-0b7a35bcabdc34876
     us-east-2:
-      '64': ami-08e9488997b77008b
+      '64': XXXX
     us-west-1:
-      '64': ami-08bbf85446b9b8bae
+      '64': XXXX
     us-west-2:
-      '64': ami-066d2df7eab59c767
+      '64': XXXX
     ca-central-1:
-      '64': ami-038edeb82d485e2ff
+      '64': XXXX
     eu-central-1:
-      '64': ami-05c20822282b54536
+      '64': XXXX
     eu-west-1:
-      '64': ami-043f5b68498932e5a
+      '64': XXXX
     eu-west-2:
-      '64': ami-0547b6b43ce929de7
+      '64': XXXX
     eu-west-3:
-      '64': ami-0ef703c1dadffd700
+      '64': XXXX
     eu-north-1:
-      '64': ami-0c1a149f26940fbfe
+      '64': XXXX
     ap-southeast-1:
-      '64': ami-03e8d4d808297f489
+      '64': XXXX
     ap-southeast-2:
-      '64': ami-0a6f958aa6ada9f8b
+      '64': XXXX
     ap-south-1:
-      '64': ami-046a4e4da7b3f87e6
+      '64': XXXX
     ap-northeast-1:
-      '64': ami-0e5a1925d67036bd4
+      '64': XXXX
     ap-northeast-2:
-      '64': ami-0e0e72548265415a7
+      '64': XXXX
     sa-east-1:
-      '64': ami-0a151507bd48d0202
+      '64': XXXX
     us-gov-east-1:
-      '64': ami-032ee6cd41acc8161
+      '64': XXXX
     us-gov-west-1:
-      '64': ami-0cf6eaad451cc77af
+      '64': XXXX
 Rules:
   SubnetsNotEmpty:
     Assertions:
@@ -455,7 +455,7 @@ Resources:
     UpdateReplacePolicy: Retain
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14/pyramid-aurora-postgres.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14-HF-1/pyramid-aurora-postgres.yaml
       Parameters:
         VPCID: !Ref VPCID
         SubnetIds: !Join 
@@ -472,7 +472,7 @@ Resources:
     Type: 'AWS::CloudFormation::Stack'
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14/pyramid-central-instance.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14-HF-1/pyramid-central-instance.yaml
       Parameters:
         AMIID: !FindInMap 
           - AWSAMIRegionMap
