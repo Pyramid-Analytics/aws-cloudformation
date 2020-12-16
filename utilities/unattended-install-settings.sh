@@ -57,7 +57,7 @@ echo "region=${region}"
 echo "launching=<${launching}>"
 
 rdsAddress=`aws ssm get-parameter --name "/Pyramid/$baseStackName/RepositoryDatabaseAddress" --region $region --output text | cut -f 7`
-if [ -z "$rdsAddress" ] ; then
+if [ -z "${rdsAddress}" ] ; then
   echo "get-parameter /Pyramid/$baseStackName/RepositoryDatabaseAddress failed"
   exit 1
 fi
@@ -66,7 +66,7 @@ rdsName=`aws ssm get-parameter --name "/Pyramid/$baseStackName/RepositoryDatabas
 rdsUsername=`aws ssm get-parameter --name "/Pyramid/$baseStackName/RepositoryDatabaseUsername" --region $region --output text | cut -f 7`
 
 rdsPassword=`aws secretsmanager get-secret-value --secret-id /Pyramid/$baseStackName/RepositoryDatabasePassword --region $region --output text | cut -f 4`
-if [ -z "$rdsPassword" ] ; then
+if [ -z "${rdsPassword}" ] ; then
   echo "get-secret-value /Pyramid/$baseStackName/RepositoryDatabasePassword failed"
   exit 1
 fi
