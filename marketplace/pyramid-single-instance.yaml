@@ -332,8 +332,19 @@ Resources:
 #   repoBackup/$baseStackName-repository-$timestamp.dump
 #     backups
 #     ignore these in Pyramid instances
-
-            0-execute-restore:
+            0a-clean-1:
+              command: rm -rf /root/.aws
+              ignoreErrors: 'false'
+            0b-checkClean:
+              command: !Join
+                - ''
+                - - 'ADDRESS=`aws ssm get-parameter --name "/Pyramid/'
+                  - !Ref BaseStackName
+                  - '/RepositoryDatabaseAddress" --region '
+                  - !Ref AWS::Region
+                  -  ' --output text | cut -f 7` && [[ ! -z "${ADDRESS}" ]]'
+              ignoreErrors: 'false'
+            1-execute-restore:
               test: !Join
                 - ''
                 - - '[ -n "'
@@ -353,7 +364,7 @@ Resources:
                   - !Sub '${AWS::Region}'
                   - 'true'
               ignoreErrors: 'false'
-            1-generate-unattended-install-settings:
+            2-generate-unattended-install-settings:
               command: !Join
                 - ' '
                 - - '/usr/src/pyramid/unattended-install-settings.sh'
@@ -362,14 +373,14 @@ Resources:
                   - !Ref AWS::Region
                   - !Ref PyramidProcess
               ignoreErrors: 'false'
-            2-install:
+            3-install:
               cwd: /usr/src/pyramid
               command: "for i in Pyramid*.run; do /usr/src/pyramid/$i --mode unattended --optionfile /usr/src/pyramid/pyramid-unattended-install.ini; done"
               ignoreErrors: 'false'
-            3-cleanup:
+            4-cleanup:
               command: "rm /usr/src/pyramid/pyramid-unattended-install.ini && rm -f /tmp/pyr*.log && rm -f /tmp/bit*.log"
               ignoreErrors: 'false'
-            4-mount-shared-fs:
+            5-mount-shared-fs:
               command: !Join
                 - ' '
                 - - '/usr/src/pyramid/mnt-efs.sh --mountPoint /mnt/pyramid --subnet'
@@ -380,7 +391,7 @@ Resources:
                   - '--region'
                   - !Ref AWS::Region
               ignoreErrors: 'false'
-            5-mount-IMDB-fs:
+            6-mount-IMDB-fs:
               test: !Join
                 - ''
                 - - '[[ ''Everything,InMemoryDB'' == *"'
