@@ -412,18 +412,6 @@ Resources:
 #   repoBackup/$baseStackName-repository-$timestamp.dump
 #     backups
 #     ignore these in Pyramid instances
-            0a-clean-1:
-              command: rm -rf /root/.aws
-              ignoreErrors: 'false'
-            0b-checkClean:
-              command: !Join
-                - ''
-                - - 'ADDRESS=`aws ssm get-parameter --name "/Pyramid/'
-                  - !Ref BaseStackName
-                  - '/RepositoryDatabaseAddress" --region '
-                  - !Ref AWS::Region
-                  -  ' --output text | cut -f 7` && [[ ! -z "${ADDRESS}" ]]'
-              ignoreErrors: 'false'
             1-execute-restore:
               test: !Join
                 - ''
