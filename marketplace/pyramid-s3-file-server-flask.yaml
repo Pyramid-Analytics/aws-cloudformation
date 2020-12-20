@@ -1,0 +1,365 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  This workload template deploys a single instance of selected Pyramid processes.
+  You will be billed for the AWS resources used if you create a stack from this template. 
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+      - Label:
+          default: Instance configuration
+        Parameters:
+          - LatestAmiId
+          - Subnet
+          - InstanceType
+          - AssignPublicIP
+          # - InstallProxy
+      - Label:
+          default: Pyramid instance configuration
+        Parameters:
+          - BaseStackName
+          - InstancePurpose
+    ParameterLabels:
+      BaseStackName:
+        default: Base Stack this stack is a part of
+      PyramidProcess:
+        default: Pyramid processes to run
+      InstancePurpose:
+        default: Note on this instance's purpose
+      LatestAmiId:
+        default: Amazon Linux 2 AMI Id
+      Subnet:
+        default: Subnet to run the instance in
+      AssignPublicIP:
+        default: Assign public IP and domain name
+      InstanceType:
+        default: Cluster instance type
+Parameters:
+  BaseStackName:
+    Description: Base StackName this stack is a part of
+    Type: String
+    MinLength: '1'
+    MaxLength: '32'
+    AllowedPattern: '[-_a-zA-Z0-9]*'
+    ConstraintDescription: Required
+  InstancePurpose:
+    Description: Free text note indicating instance's purpose.
+    Type: String
+    Default: S3FileServer
+    MinLength: '1'
+    MaxLength: '32'
+    AllowedPattern: '[-_a-zA-Z0-9]*'
+    ConstraintDescription: Required
+  LatestAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-ebs'
+    Description: SSM Parameter for Latest Amazon Linux 2 AMI
+  Subnet:
+    Description: >-
+      ID of private subnet 1 in Availability Zone 1 for the Pyramid
+      Servers (e.g., subnet-a0246dcd).
+    Type: 'AWS::EC2::Subnet::Id'
+    ConstraintDescription: Required
+  AssignPublicIP:
+    Description: >-
+      Assign public IP address and domain.
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false
+    ConstraintDescription: Required
+  InstanceType:
+    Description: >-
+      Amazon EC2 instance type for the instance.
+      Has to be available for the deployment region.
+    Type: String
+    Default: t3.medium
+    MinLength: '1'
+    ConstraintDescription: Must contain valid instance type.
+Conditions:
+  AssignPublicIPCondition: !Equals
+   - !Ref AssignPublicIP
+   - 'true'
+
+Resources:
+  InstanceWaitHandle:
+    Type: 'AWS::CloudFormation::WaitConditionHandle'
+  InstanceWaitCondition:
+    Type: 'AWS::CloudFormation::WaitCondition'
+    Properties:
+      Handle: !Ref InstanceWaitHandle
+      # 5 mins
+      Timeout: '300'
+      Count: 1
+
+  S3FileServerInstance:
+    Type: 'AWS::EC2::Instance'
+    Metadata:
+      'AWS::CloudFormation::Init':
+        configSets:
+          default:
+            - EnableAmazonLinuxExtraPackages
+            - 01_setupCfnHup
+            - 02_config-amazon-cloudwatch-agent
+            - 03_restart_amazon-cloudwatch-agent
+            - InstallNginxAndFlask
+          UpdateEnvironment:
+            - 02_config-amazon-cloudwatch-agent
+            - 03_restart_amazon-cloudwatch-agent
+
+        EnableAmazonLinuxExtraPackages:
+          packages:
+            yum:
+              amazon-cloudwatch-agent: []
+          commands:
+            enable_amazon-linux-extras_packages:
+              command: "amazon-linux-extras enable epel nginx1 python3.8 && yum clean metadata"
+
+        # Cfn-hup setting, it is to monitor the change of metadata.
+        # When there is change in the contents of json file in the metadata section, cfn-hup will call cfn-init to restart the AmazonCloudWatchAgent.
+        01_setupCfnHup:
+          files:
+            '/etc/cfn/cfn-hup.conf':
+              content: !Sub |
+                [main]
+                stack=${AWS::StackId}
+                region=${AWS::Region}
+                interval=1
+              mode: '000400'
+              owner: root
+              group: root
+            '/etc/cfn/hooks.d/amazon-cloudwatch-agent-auto-reloader.conf':
+              content: !Sub |
+                [cfn-auto-reloader-hook]
+                triggers=post.update
+                path=Resources.S3FileServerInstance.Metadata.AWS::CloudFormation::Init.02_config-amazon-cloudwatch-agent
+                action=/opt/aws/bin/cfn-init -v --stack ${AWS::StackId} --resource S3FileServerInstance --region ${AWS::Region} --configsets UpdateEnvironment
+                runas=root
+              mode: '000400'
+              owner: root
+              group: root
+            "/lib/systemd/system/cfn-hup.service":
+              content: |
+                [Unit]
+                Description=cfn-hup daemon
+                [Service]
+                Type=simple
+                ExecStart=/opt/aws/bin/cfn-hup
+                Restart=always
+                [Install]
+                WantedBy=multi-user.target
+          commands:
+            01enable_cfn_hup:
+              command: systemctl enable cfn-hup.service
+            02start_cfn_hup:
+              command: systemctl start cfn-hup.service
+
+        # Definition of json configuration of AmazonCloudWatchAgent
+        02_config-amazon-cloudwatch-agent:
+          files:
+            /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json:
+              content: !Sub |
+                {
+                  "logs": {
+                    "logs_collected": {
+                      "files": {
+                        "collect_list": [
+                          {
+                            "file_path": "/var/log/nginx/access.log",
+                            "log_group_name": "/pyramid/${BaseStackName}",
+                            "log_stream_name": "{instance_id}-${InstancePurpose}/access.log",
+                            "timestamp_format": "%Y-%m-%d %H:%M:%S,%f"
+                          },
+                           {
+                            "file_path": "/var/log/nginx/error.log",
+                            "log_group_name": "/pyramid/${BaseStackName}",
+                            "log_stream_name": "{instance_id}-${InstancePurpose}/error.log",
+                            "timestamp_format": "%Y-%m-%d %H:%M:%S,%f"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+        # Invoke amazon-cloudwatch-agent-ctl to restart the AmazonCloudWatchAgent.
+        03_restart_amazon-cloudwatch-agent:
+          commands:
+            01_stop_service:
+              command: /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a stop
+            02_start_service:
+              command: /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
+
+        InstallNginxAndFlask:
+          packages:
+            yum:
+              python3.8: []
+              nginx: []
+
+          files:
+            /lib/systemd/system/s3server.service:
+              [Unit]
+              #  specifies metadata and dependencies
+              Description=Gunicorn instance to serve s3server
+              After=network.target
+              # tells the init system to only start this after the networking target has been reached
+              # We will give our regular user account ownership of the process since it owns all of the relevant files
+              [Service]
+              # Service specify the user and group under which our process will run.
+              # User=yourusername
+              # give group ownership to the www-data group so that Nginx can communicate easily with the Gunicorn processes.
+              Group=www-data
+              # We'll then map out the working directory and set the PATH environmental variable so that the init system knows where our the executables for the process are located (within our virtual environment).
+              WorkingDirectory=/usr/src/pyramid
+              Environment="PATH=/usr/src/pyramid/s3server/bin"
+              # We'll then specify the commanded to start the service
+              ExecStart=/usr/src/pyramid/s3server/bin/gunicorn --workers 3 --bind unix:s3server.sock -m 007 wsgi:s3server
+              # This will tell systemd what to link this service to if we enable it to start at boot. We want this service to start when the regular multi-user system is up and running:
+              [Install]
+              WantedBy=multi-user.target
+
+            /etc/nginx/sites-available/s3server:
+              content: |
+                server {
+                  # server_name <server_name/public ip>;
+                  listen 80;
+                  location / {
+                    include proxy_params;
+                    proxy_pass http://unix:/usr/src/pyramid/s3server.sock;
+                    # rewrite ^/s3/(.*) /$1 break;
+                    # proxy_pass http://127.0.0.1:8000;
+                  }
+                }
+
+            /usr/src/pyramid/s3server/s3.py:
+              content: |
+                from flask import Flask
+                from flask_cors import CORS
+                from gevent.pywsgi import WSGIServer
+
+                app = Flask(__name__)
+                CORS(app) #Prevents CORS errors 
+
+                @app.route(‘/’)
+                def index():
+                    return “Hello, World!”
+
+                if __name__ == '__main__':
+                    app.debug = True 
+                    http_server = WSGIServer(('', 8000), app)
+                    http_server.serve_forever()
+
+          commands:
+            01_virtualenv:
+              cwd: /usr/src/pyramid
+              command: python3.8 -m venv s3server && deactivate
+            02_pip install_components:
+              command: pip3.8 install flask gunicorn flask-cors smart_open[s3] 
+            03_enable_nginx_site:
+              command: ln -s /etc/nginx/sites-available/s3server /etc/nginx/sites-enabled
+            # 04_virtualenv:
+            #   cwd: /opt/s3server
+            #   command: virtualenv s3serverenv && start s3server
+
+          services:
+            sysvinit:
+              s3server:
+                enabled: true
+                ensureRunning: true
+              nginx:
+                enabled: true
+                ensureRunning: true
+                files:
+                  - /etc/nginx/sites-available/s3server
+
+    Properties:
+      ImageId: !Ref LatestAmiId
+      KeyName: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/KeyPairName:1}}'
+      IamInstanceProfile: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/PyramidInstanceProfile:1}}'
+      InstanceType: !Ref InstanceType
+      SecurityGroupIds: !If
+        - AssignPublicIPCondition
+        - !Ref 'AWS::NoValue'
+        - !Split [",", !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/WebAccessSecurityGroup:1}}']
+      SubnetId: !If
+        - AssignPublicIPCondition
+        - !Ref 'AWS::NoValue'
+        - !Ref Subnet
+      Monitoring: false
+      DisableApiTermination: false
+      BlockDeviceMappings:
+        - DeviceName: "/dev/sda1"
+          Ebs: 
+            VolumeSize: 20
+      NetworkInterfaces: !If
+        - AssignPublicIPCondition
+        - -
+            AssociatePublicIpAddress: true
+            DeleteOnTermination: true
+            DeviceIndex: '0'
+            GroupSet: !Split [",", !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/WebAccessSecurityGroup:1}}']
+            SubnetId: !Ref Subnet
+        - !Ref 'AWS::NoValue'
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - |
+              Content-Type: multipart/mixed; boundary="//"
+              MIME-Version: 1.0
+              --//
+              Content-Type: text/cloud-config; charset="us-ascii"
+              MIME-Version: 1.0
+              Content-Transfer-Encoding: 7bit
+              Content-Disposition: attachment; filename="cloud-config.txt"
+
+              #cloud-config
+              cloud_final_modules:
+              - [scripts-user, always]
+
+              --//
+              Content-Type: text/x-shellscript; charset="us-ascii"
+              MIME-Version: 1.0
+              Content-Transfer-Encoding: 7bit
+              Content-Disposition: attachment; filename="userdata.txt"
+
+              #!/bin/bash -xe
+
+              # run cfn-init
+
+            - '/opt/aws/bin/cfn-init -v  --configsets default --stack '
+            - !Ref 'AWS::StackName'
+            - ' --resource S3FileServerInstance --region '
+            - !Ref 'AWS::Region'
+            - |+
+
+            - |
+              # Signal the status from cfn-init
+
+            - '/opt/aws/bin/cfn-signal -e $? '
+            - !Base64
+              Ref: InstanceWaitHandle
+            - |+
+
+            - '--//'
+            - |+
+
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}'
+        - Key: Vendor
+          Value: Pyramid
+        - Key: StackName
+          Value: !Sub '${BaseStackName}'
+        - Key: Contents
+          Value: !Sub '${InstancePurpose}'
+
+Outputs:
+  PublicDNSName:
+    Value: !If
+      - AssignPublicIPCondition
+      - !GetAtt S3FileServerInstance.PublicDnsName
+      - ''
+    Description: Instance Public DNS name
+  PrivateDNSName:
+    Value: !GetAtt S3FileServerInstance.PrivateDnsName
+    Description: Instance Private DNS name
+
