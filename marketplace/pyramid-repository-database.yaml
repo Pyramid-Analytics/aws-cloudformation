@@ -17,19 +17,19 @@ Metadata:
       Parameters:
       - RDSDeploymentType
       - DBServiceName
+      - DBMasterUsername
+      - DBMasterUserPassword
       - DBAutoMinorVersionUpgrade
       - DBBackupRetentionPeriod
       # - DBInstanceClass
       # - DBPort
       - DBAllocatedStorageSize
       - DBAllocatedStorageEncrypted
-      - DBMasterUsername
-      - DBMasterUserPassword
     ParameterLabels:
       RDSDeploymentType:
         default: RDS Deployment type
       DBServiceName:
-        default: Aurora cluster name
+        default: RDS Service name
       DBAllocatedStorageSize:
         default: Database storage in GB for non-Aurora deployments
       DBAllocatedStorageEncrypted:
@@ -48,10 +48,10 @@ Metadata:
         default: Database port
       DBAccessCIDR:
         default: CIDR that can access the service
-      DBMultiAZ:
-        default: Multi-AZ deployment
+      # DBMultiAZ:
+      #   default: Multi-AZ deployment
       SubnetIds:
-        default: Subnet Ids in VPC to deploy instances. String of comma separated Ids used when this template is nested.
+        default: Subnet Ids in VPC to Aurora PostgreSQL into
       VPCID:
         default: VPC ID
 Parameters:
@@ -135,7 +135,7 @@ Parameters:
     Default: ''
     Type: String
   SubnetIds:
-    Description: Subnet Ids to deploy instances into.
+    Description: Subnet Ids to deploy Aurora PostgeSQL into.
     Type: CommaDelimitedList
   VPCID: 
     Description: "ID of the VPC you are deploying Aurora into (e.g., vpc-0343606e)."
@@ -151,16 +151,18 @@ Mappings:
       engine: no instance engine
       engineVersion: no version
       family: no instance family
+      licenseModel: no explicit license
       instanceType: no instance type
       port: '5432'
     PostgreSQLAuroraProvisioned:
       clusterEngine: aurora-postgresql
-      clusterFamily: aurora-postgresql10
-      clusterEngineVersion: '10.12'
+      clusterFamily: aurora-postgresql11
+      clusterEngineVersion: '11.9'
       engine: aurora-postgresql
-      engineVersion: '10.12'
-      family: aurora-postgresql10
-      instanceType: db.m5.xlarge
+      engineVersion: '11.9'
+      family: aurora-postgresql11
+      licenseModel: no explicit license
+      instanceType: db.r5.xlarge
       port: '5432'
     PostgreSQL:
       clusterEngine: no cluster
@@ -169,16 +171,20 @@ Mappings:
       engine: postgres
       engineVersion: '11.9'
       family: postgres11
-      instanceType: db.m5.xlarge
+      licenseModel: no explicit license
+      instanceType: db.r5.xlarge
       port: '5432'
     MicrosoftSQLServer:
       clusterEngine: no cluster
       clusterFamily: no cluster
       clusterEngineVersion: no cluster
-      engine: sqlserver-ex
-      engineVersion: '15.00.4043.16.v1'
-      family: 'sqlserver-ex-15.0'
-      instanceType: db.m5.xlarge
+      engine: sqlserver-se
+      # engineVersion: '15.00.4043.16.v1'
+      # family: 'sqlserver-ex-15.0'
+      engineVersion: '14.00.3294.2.v1'
+      family: 'sqlserver-se-14.0'
+      licenseModel: license-included
+      instanceType: db.r5.xlarge
       port: '1433'
 
 Rules:
@@ -320,6 +326,10 @@ Resources:
       DBInstanceClass: !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "instanceType"]
       Engine: !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "engine"]
       EngineVersion: !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "engineVersion"]
+      LicenseModel: !If
+        - SQLServer
+        - !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "licesneModel"]
+        - !Ref 'AWS::NoValue'
       Port: !If
         - IsPostgreSQLAurora
         - !Ref AWS::NoValue
@@ -331,11 +341,23 @@ Resources:
           - SQLServer
           - !Ref SQLServerDBParamGroup
           - !Ref PostgreSQLDBParamGroup
-      PubliclyAccessible: false
+      MasterUsername: !If
+        - IsPostgreSQLAurora
+        - !Ref AWS::NoValue
+        - !Ref DBMasterUsername
+      MasterUserPassword: !If
+        - IsPostgreSQLAurora
+        - !Ref AWS::NoValue
+        - !Ref DBMasterUserPassword
       AllocatedStorage: !If
         - IsPostgreSQLAurora
         - !Ref AWS::NoValue
         - !Ref DBAllocatedStorageSize
+      StorageEncrypted: !If
+        - IsPostgreSQLAurora
+        - !Ref AWS::NoValue
+        - !If [UseDatabaseEncryption, !Ref DBAllocatedStorageEncrypted, !Ref 'AWS::NoValue']
+      PubliclyAccessible: false
       Tags:
         -
           Key: Name
@@ -372,6 +394,10 @@ Resources:
         - IsPostgreSQLAurora
         - !Ref AWS::NoValue
         - !Ref DBAllocatedStorageSize
+      StorageEncrypted: !If
+        - IsPostgreSQLAurora
+        - !Ref AWS::NoValue
+        - !If [UseDatabaseEncryption, !Ref DBAllocatedStorageEncrypted, !Ref 'AWS::NoValue']
       PubliclyAccessible: false
       Tags:
         -
@@ -380,8 +406,9 @@ Resources:
 
   DBSubnetGroup: 
     Type: "AWS::RDS::DBSubnetGroup"
+    Condition: IsPostgreSQLAurora
     Properties: 
-      DBSubnetGroupDescription: "Subnets available for the RDS database instance"
+      DBSubnetGroupDescription: "Subnets for Aurora PostgreSQL deployment"
       SubnetIds: !Ref SubnetIds
 
   RDSSecurityGroup:
