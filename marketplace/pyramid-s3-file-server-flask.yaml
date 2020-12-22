@@ -9,6 +9,7 @@ Metadata:
           default: Instance configuration
         Parameters:
           - LatestAmiId
+          - VPCID
           - Subnet
           - InstanceType
           - AssignPublicIP
@@ -27,6 +28,8 @@ Metadata:
         default: Note on this instance's purpose
       LatestAmiId:
         default: Amazon Linux 2 AMI Id
+      VPCID:
+        default: VPC ID
       Subnet:
         default: Subnet to run the instance in
       AssignPublicIP:
@@ -53,6 +56,10 @@ Parameters:
     Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
     Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-ebs'
     Description: SSM Parameter for Latest Amazon Linux 2 AMI
+  VPCID:
+    Description: ID of your existing VPC for deployment.
+    Type: 'AWS::EC2::VPC::Id'
+    ConstraintDescription: Required
   Subnet:
     Description: >-
       ID of private subnet 1 in Availability Zone 1 for the Pyramid
@@ -76,6 +83,18 @@ Parameters:
     Default: t3.medium
     MinLength: '1'
     ConstraintDescription: Must contain valid instance type.
+
+Rules:
+  SubnetsInVPC:
+    Assertions:
+      - Assert:
+          'Fn::EachMemberIn':
+            - 'Fn::ValueOfAll':
+                - 'AWS::EC2::Subnet::Id'
+                - VpcId
+            - 'Fn::RefAll': 'AWS::EC2::VPC::Id'
+        AssertDescription: All subnets must be in the same VPC
+
 Conditions:
   AssignPublicIPCondition: !Equals
    - !Ref AssignPublicIP
@@ -91,6 +110,27 @@ Resources:
       # 5 mins
       Timeout: '300'
       Count: 1
+
+
+  AccessSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Allow HTTP and HTTPS access to the instance
+      VpcId: !Ref VPCID
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/PyramidProcessesSecurityGroup:1}}'
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          SourceSecurityGroupId: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/PyramidProcessesSecurityGroup:1}}'
 
   S3FileServerInstance:
     Type: 'AWS::EC2::Instance'
@@ -165,15 +205,21 @@ Resources:
                       "files": {
                         "collect_list": [
                           {
-                            "file_path": "/var/log/nginx/access.log",
-                            "log_group_name": "/pyramid/${BaseStackName}",
-                            "log_stream_name": "{instance_id}-${InstancePurpose}/access.log",
-                            "timestamp_format": "%Y-%m-%d %H:%M:%S,%f"
-                          },
-                           {
                             "file_path": "/var/log/nginx/error.log",
                             "log_group_name": "/pyramid/${BaseStackName}",
-                            "log_stream_name": "{instance_id}-${InstancePurpose}/error.log",
+                            "log_stream_name": "{instance_id}-${InstancePurpose}/nginx-error.log",
+                            "timestamp_format": "%Y/%m/%d %H:%M:%S"
+                          },
+                          {
+                            "file_path": "/var/log/gunicorn/error.log",
+                            "log_group_name": "/pyramid/${BaseStackName}",
+                            "log_stream_name": "{instance_id}-${InstancePurpose}/gunicorn-error.log",
+                            "timestamp_format": "%Y-%m-%d %H:%M:%S %z"
+                          },
+                          {
+                            "file_path": "/var/log/cfn-init.log",
+                            "log_group_name": "/pyramid/${BaseStackName}",
+                            "log_stream_name": "{instance_id}-${InstancePurpose}/cfn-init.log",
                             "timestamp_format": "%Y-%m-%d %H:%M:%S,%f"
                           }
                         ]
@@ -192,70 +238,120 @@ Resources:
         InstallNginxAndFlask:
           packages:
             yum:
-              python3.8: []
+              python38: []
               nginx: []
 
           files:
-            /lib/systemd/system/s3server.service:
-              [Unit]
-              #  specifies metadata and dependencies
-              Description=Gunicorn instance to serve s3server
-              After=network.target
-              # tells the init system to only start this after the networking target has been reached
-              # We will give our regular user account ownership of the process since it owns all of the relevant files
-              [Service]
-              # Service specify the user and group under which our process will run.
-              # User=yourusername
-              # give group ownership to the www-data group so that Nginx can communicate easily with the Gunicorn processes.
-              Group=www-data
-              # We'll then map out the working directory and set the PATH environmental variable so that the init system knows where our the executables for the process are located (within our virtual environment).
-              WorkingDirectory=/usr/src/pyramid
-              Environment="PATH=/usr/src/pyramid/s3server/bin"
-              # We'll then specify the commanded to start the service
-              ExecStart=/usr/src/pyramid/s3server/bin/gunicorn --workers 3 --bind unix:s3server.sock -m 007 wsgi:s3server
-              # This will tell systemd what to link this service to if we enable it to start at boot. We want this service to start when the regular multi-user system is up and running:
-              [Install]
-              WantedBy=multi-user.target
-
-            /etc/nginx/sites-available/s3server:
+            /etc/systemd/system/s3server.service:
               content: |
-                server {
-                  # server_name <server_name/public ip>;
-                  listen 80;
-                  location / {
-                    include proxy_params;
-                    proxy_pass http://unix:/usr/src/pyramid/s3server.sock;
-                    # rewrite ^/s3/(.*) /$1 break;
-                    # proxy_pass http://127.0.0.1:8000;
-                  }
+                [Unit]
+                Description=Gunicorn instance to serve s3server
+                After=network.target
+                [Service]
+                User=nginx
+                Group=nginx
+                PermissionsStartOnly=true
+                ExecStartPre=-/bin/mkdir -p /var/log/gunicorn
+                ExecStartPre=-/bin/touch /var/log/gunicorn/error.log
+                ExecStartPre=/bin/chown -R nginx:nginx /var/log/gunicorn
+                ExecStartPre=/bin/chmod 664 /var/log/gunicorn/error.log
+                #
+                WorkingDirectory=/opt/s3server
+                Environment="PATH=/opt/s3server/s3server/bin"
+                ExecStart=/opt/s3server/s3server/bin/gunicorn --workers 3 --log-file /var/log/gunicorn/error.log --bind unix:/opt/s3server/s3server.sock -m 007 wsgi:s3server
+                [Install]
+                WantedBy=multi-user.target
+              mode: '000644'
+
+
+            /etc/nginx/default.d/s3server.conf:
+              content: |
+                location / {
+                    proxy_set_header Host $host;
+                    proxy_set_header X-Real-IP $remote_addr;
+                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                    proxy_pass http://unix:/opt/s3server/s3server.sock;
                 }
+              owner: nginx
+              group: nginx
 
-            /usr/src/pyramid/s3server/s3.py:
+            /opt/s3server/s3server.py:
               content: |
-                from flask import Flask
-                from flask_cors import CORS
-                from gevent.pywsgi import WSGIServer
+                import logging
+                from flask import Flask, Response
+                import botocore
+                from smart_open import open
 
-                app = Flask(__name__)
-                CORS(app) #Prevents CORS errors 
+                # https://github.com/RaRe-Technologies/smart_open
 
-                @app.route(‘/’)
-                def index():
-                    return “Hello, World!”
+                s3server = Flask(__name__)
+
+                if __name__ != '__main__':
+                    gunicorn_logger = logging.getLogger('gunicorn.error')
+                    s3server.logger.handlers = gunicorn_logger.handlers
+                    s3server.logger.setLevel(gunicorn_logger.level)
+
+                @s3server.route('/')
+                def hello_world():
+                    return "Hello World!"
+
+                def generate(open_handle):
+                    for line in open_handle:
+                        yield line
+
+                @s3server.route('/s3get/<path:bucketFolderFile>',  methods=["GET"])
+                def get_s3_file(bucketFolderFile):
+                    s3server.logger.info('s3get: ' + bucketFolderFile)
+
+                    try:
+                        open_handle = open('s3://' + bucketFolderFile)
+                        return Response(generate(open_handle))
+                    except OSError as error:
+                        s3server.logger.exception(error)
+                        return Response(repr(error), status=400, mimetype='text/plain')
+                    except Exception as error:
+                        s3server.logger.exception(error)
+                        return Response(repr(error), status=400, mimetype='text/plain')
 
                 if __name__ == '__main__':
-                    app.debug = True 
-                    http_server = WSGIServer(('', 8000), app)
-                    http_server.serve_forever()
+                    s3server.run(host='0.0.0.0')
+              owner: nginx
+              group: nginx
+
+            /opt/s3server/wsgi.py:
+              content: |
+                from s3server import s3server
+
+                if __name__ == "__main__":
+                    s3server.run()
+              owner: nginx
+              group: nginx
+
+            /opt/s3server/s3server-installer.sh:
+              content: |
+                #!/bin/bash
+                #
+                python3.8 -m venv s3server
+                source s3server/bin/activate
+                pip install flask gunicorn smart_open[s3]
+                chown -R nginx:nginx *
+                chown nginx:nginx .
+                deactivate
+              mode: '000754'
+              owner: nginx
+              group: nginx
 
           commands:
-            01_virtualenv:
-              cwd: /usr/src/pyramid
-              command: python3.8 -m venv s3server && deactivate
-            02_pip install_components:
-              command: pip3.8 install flask gunicorn flask-cors smart_open[s3] 
-            03_enable_nginx_site:
-              command: ln -s /etc/nginx/sites-available/s3server /etc/nginx/sites-enabled
+            01_enable_s3_server:
+              cwd: /opt/s3server
+              command: /opt/s3server/s3server-installer.sh
+            # 01_virtualenv:
+            #   cwd: /opt/s3server
+            #   command: python3.8 -m venv s3server
+            # 02_pip install_components:
+            #   command: pip3.8 install flask gunicorn smart_open[s3] 
+            # 03_enable_nginx_site:
+            #   command: ln -s /etc/nginx/sites-available/s3server /etc/nginx/sites-enabled
             # 04_virtualenv:
             #   cwd: /opt/s3server
             #   command: virtualenv s3serverenv && start s3server
@@ -265,11 +361,13 @@ Resources:
               s3server:
                 enabled: true
                 ensureRunning: true
+                files: 
+                  - /etc/systemd/system/s3server.service
               nginx:
                 enabled: true
                 ensureRunning: true
                 files:
-                  - /etc/nginx/sites-available/s3server
+                  - /etc/nginx/default.d/s3server.conf
 
     Properties:
       ImageId: !Ref LatestAmiId
@@ -279,7 +377,8 @@ Resources:
       SecurityGroupIds: !If
         - AssignPublicIPCondition
         - !Ref 'AWS::NoValue'
-        - !Split [",", !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/WebAccessSecurityGroup:1}}']
+        - !Split [",", !Ref AccessSecurityGroup ]
+        # - !Split [",", !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/WebAccessSecurityGroup:1}}']
       SubnetId: !If
         - AssignPublicIPCondition
         - !Ref 'AWS::NoValue'
@@ -296,7 +395,8 @@ Resources:
             AssociatePublicIpAddress: true
             DeleteOnTermination: true
             DeviceIndex: '0'
-            GroupSet: !Split [",", !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/WebAccessSecurityGroup:1}}']
+            GroupSet: !Split [",", !Ref AccessSecurityGroup ]
+            # GroupSet: !Split [",", !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/WebAccessSecurityGroup:1}}']
             SubnetId: !Ref Subnet
         - !Ref 'AWS::NoValue'
       UserData: !Base64
