@@ -56,25 +56,6 @@ Parameters:
     Description: Download of a Pyramid Windows installer
     Type: String
     MinLength: '1'
-  # PyramidProcess:
-  #   Description: >-
-  #     For unattended installation.
-  #   Type: String
-  #   AllowedValues:
-  #     - Everything
-  #     - Router
-  #     - WebServer
-  #     - WebServerAndRouter
-  #     - RuntimeEngine
-  #     - TaskEngine
-  #     - RuntimeEngineAndTaskEngine
-  #     - RuntimeEngineAndAI
-  #     - TaskEngineAndAI
-  #     - RuntimeAndTaskEngineAndAI
-  #     - AIServer
-  #     - InMemoryDB
-  #     - Nothing
-  #   Default: Everything
   BaseStackName:
     Description: Base StackName this stack is a part of
     Type: String
