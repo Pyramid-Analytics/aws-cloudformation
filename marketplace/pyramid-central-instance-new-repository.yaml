@@ -19,6 +19,7 @@ Metadata:
           - AllowSSHSecurityGroup
           - InitialUsername
           - InitialUserPassword
+          - BackupS3BucketAndFolder
       - Label:
           default: New Repository Database Service
         Parameters:
@@ -28,7 +29,6 @@ Metadata:
           - RDSUser
           - RDSPassword
           - RDSName
-          - BackupS3BucketAndFolder
     ParameterLabels:
       KeyPairName:
         default: Key pair name
@@ -81,32 +81,26 @@ Parameters:
       the deployment region.
     Type: String
     AllowedValues:
-      - m5.xlarge
       - m5.2xlarge
       - m5.4xlarge
       - m5.8xlarge
       - m5.12xlarge
-      - m5a.xlarge
       - m5a.2xlarge
       - m5a.4xlarge
       - m5a.8xlarge
       - m5a.12xlarge
-      - m5n.xlarge
       - m5n.2xlarge
       - m5n.4xlarge
       - m5n.8xlarge
       - m5n.12xlarge
-      - c5.xlarge
       - c5.2xlarge
       - c5.4xlarge
       - c5.8xlarge
       - c5.12xlarge
-      - c5a.xlarge
       - c5a.2xlarge
       - c5a.4xlarge
       - c5a.8xlarge
       - c5a.12xlarge
-      - c5n.xlarge
       - c5n.2xlarge
       - c5n.4xlarge
       - c5n.8xlarge
@@ -143,12 +137,12 @@ Parameters:
   RDSDeploymentType:
     Description: RDS deployment type
     Type: String
-    Default: PostgreSQL-Cluster-Aurora
+    Default: PostgreSQLAuroraServerless
     AllowedValues:
-      - PostgreSQL-Cluster-Aurora
-      - PostgreSQL-Cluster
+      - PostgreSQLAuroraServerless
+      - PostgreSQLAuroraProvisioned
       - PostgreSQL
-      - Microsoft-SQL-Server
+      - MicrosoftSQLServer
   RDSServiceName:
     Description: >-
       Name of the new RDS service (ie. pyramid)
@@ -241,19 +235,13 @@ Parameters:
     ConstraintDescription: >-
       Optional. Otherwise min 5 characters. First character must be a letter. Must contain only letters, digits, '/', '-', '_', '=', '*' or parentheses.
 Mappings:
-  DatabasePorts:
-    All:
-      PostgreSQL-Cluster-Aurora: 5432
-      PostgreSQL-Cluster: 5432
-      PostgreSQL: 5432
-      Microsoft-SQL-Server: 1433
 
   AWSAMIRegionMap:
     us-east-1:
       # 2020.13.100
       # '64': ami-029d57f27fac5962a
       # 2020.14.035
-      '64': ami-01a0fa635f41f579d
+      '64': ami-055ba2939ef9f824c
 Rules:
   SubnetsNotEmpty:
     Assertions:
@@ -282,7 +270,7 @@ Rules:
 Conditions:
   DatabaseTypeIsMicrosoft: !Equals
     - !Ref RDSDeploymentType
-    - 'Microsoft-SQL-Server'
+    - 'MicrosoftSQLServer'
   PublicIP: !Equals
     - !Ref AssignPublicIP
     - 'true'
@@ -442,16 +430,13 @@ Resources:
       TemplateURL: >-
         https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14-autoscaling/pyramid-repository-database.yaml
       Parameters:
+        RDSDeploymentType: !Ref RDSDeploymentType
         VPCID: !Ref VPCID
         SubnetIds: !Join 
           - ','
           - !Ref NewRDSSubnets
         DBAccessCIDR: !GetAtt CidrOfVpc.CidrBlock
         DBServiceName: !Ref RDSServiceName
-        DBPort: !FindInMap
-          - !Ref DatabasePorts
-          - All
-          - !Ref RDSDeploymentType
         DBMasterUsername: !Ref RDSUser
         DBMasterUserPassword: !Ref RDSPassword
 
@@ -459,7 +444,7 @@ Resources:
     Type: 'AWS::CloudFormation::Stack'
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14-autoscaling/pyramid-repository-database.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14-autoscaling/pyramid-central-instance.yaml
       Parameters:
         AMIID: !FindInMap 
           - AWSAMIRegionMap
@@ -476,15 +461,12 @@ Resources:
         AllowSSHSecurityGroup: !Ref AllowSSHSecurityGroup
         InitialUsername: !Ref InitialUsername
         InitialUserPassword: !Ref InitialUserPassword
-        RDSDeploymentType: !If
+        RDSType: !If
           - DatabaseTypeIsMicrosoft
           - MicrosoftSQLServer
           - PostgreSQL
-        RDSServiceName: !GetAtt CreateRepositoryDatabaseService.Outputs.RDSEndPointAddress
-        RDSPort: !FindInMap
-          - !Ref DatabasePorts
-          - All
-          - !Ref RDSDeploymentType
+        RDSAddress: !GetAtt CreateRepositoryDatabaseService.Outputs.RDSEndPointAddress
+        RDSPort: !GetAtt CreateRepositoryDatabaseService.Outputs.RDSEndPointPort
         RDSName: !Ref RDSName
         RDSUser: !Ref RDSUser
         RDSPassword: !Ref RDSPassword
@@ -535,10 +517,7 @@ Outputs:
     Value: !GetAtt CreateRepositoryDatabaseService.Outputs.RDSEndPointAddress
     Description: Repository database address
   RepositoryDatabasePort:
-    Value: !FindInMap
-      - !Ref DatabasePorts
-      - All
-      - !Ref RDSDeploymentType
+    Value: !GetAtt CreateRepositoryDatabaseService.Outputs.RDSEndPointPort
     Description: Repository database port
   RepositoryDatabaseUsername:
     Value: !Ref RDSUser
