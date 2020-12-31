@@ -39,3 +39,4 @@ rm -f $(find . -maxdepth 1 -type f -name "*.sh" ! -name "$this_file_name")
 
 find /root/.*history /home/*/.*history -exec rm -f {} \;
 find /root/.ssh/authorized_keys /home/*/.ssh/authorized_keys -exec rm -f {} \;
+sudo find /root/.aws /home/*/.aws -exec rm -rf {} \;
