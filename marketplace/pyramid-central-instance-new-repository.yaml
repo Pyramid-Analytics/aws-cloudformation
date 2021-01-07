@@ -19,7 +19,8 @@ Metadata:
           - AllowSSHSecurityGroup
           - InitialUsername
           - InitialUserPassword
-          - BackupS3BucketAndFolder
+          - BackupS3Bucket
+          - BackupS3Folder
       - Label:
           default: New Repository Database Service
         Parameters:
@@ -61,8 +62,10 @@ Metadata:
         default: Initial Pyramid user name
       InitialUserPassword:
         default: Initial Pyramid User password
+      BackupS3Bucket:
+        default: S3 bucket containing a Pyramid backup
       BackupS3BucketAndFolder:
-        default: S3 path to a Pyramid backup
+        default: Path under S3 bucket to a Pyramid backup
 Parameters:
   KeyPairName:
     Description: Name of an existing EC2 key pair for SSH connections.
@@ -225,15 +228,24 @@ Parameters:
     MinLength: '8'
     NoEcho: 'True'
     Type: String
-  BackupS3BucketAndFolder:
+  BackupS3Bucket:
     Description: >-
-      S3 path to a Pyramid backup
+      S3 bucket to a Pyramid backup
     Type: String
     Default: ''
     MaxLength: '1000'
-    AllowedPattern: '^$|^(?=^.{5,255}$)[-_a-zA-Z0-9/\=()]*$'
+    AllowedPattern: '^$|^(?=^.{5,1000}$)[a-zA-Z][-_a-zA-Z0-9\=()]*$'
     ConstraintDescription: >-
-      Optional. Otherwise min 5 characters. First character must be a letter. Must contain only letters, digits, '/', '-', '_', '=', '*' or parentheses.
+      Optional. Otherwise min 5 characters. First character must be a letter. Must contain only letters, digits, '-', '_', '=' or parentheses.
+  BackupS3Folder:
+    Description: >-
+      Path within S3 bucket to a Pyramid backup
+    Type: String
+    Default: ''
+    MaxLength: '1000'
+    AllowedPattern: '^$|^(?=^.{5,1000}$)[a-zA-Z0-9][-_a-zA-Z0-9/\=()]*$'
+    ConstraintDescription: >-
+      Optional. Otherwise min 5 characters. First character must be a letter or number. Must contain only letters, digits, '/', '-', '_', '=' or parentheses.
 Mappings:
 
   AWSAMIRegionMap:
@@ -241,7 +253,7 @@ Mappings:
       # 2020.13.100
       # '64': ami-029d57f27fac5962a
       # 2020.14.035
-      '64': ami-055ba2939ef9f824c
+      '64': ami-0bc27a356344f2352
 Rules:
   SubnetsNotEmpty:
     Assertions:
@@ -274,204 +286,252 @@ Conditions:
   PublicIP: !Equals
     - !Ref AssignPublicIP
     - 'true'
+  AllowSSH: !Not 
+    - !Equals 
+      - !Ref AllowSSHSecurityGroup
+      - ''
+  RestoreFromBackup: !Not 
+    - !Equals 
+      - !Ref BackupS3Bucket
+      - ''
 
 Resources:
 
-  CidrOfVpcRole:
-    Type: 'AWS::IAM::Role'
+  BaseResourcesParameters:
+    Type: 'AWS::CloudFormation::Stack'
     Properties:
-      ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/AmazonEC2ReadOnlyAccess'
-        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
-      AssumeRolePolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service:
-                - lambda.amazonaws.com
-            Action:
-              - 'sts:AssumeRole'
-
-  CidrOfVpcLambda:
-    Type: 'AWS::Lambda::Function'
-    Properties:
-      Code:
-        ZipFile: |
-          import boto3
-
-          from botocore.exceptions import ClientError
-
-          from urllib.parse import urlencode
-
-          from urllib.request import urlopen, Request, HTTPError, URLError
-
-          import json
-
-          def send_response(event, context, response_status, reason=None,
-          response_data={}):
-              body = {
-                  "Status": response_status,
-                  "PhysicalResourceId": context.log_stream_name,
-                  "StackId": event["StackId"],
-                  "RequestId": event["RequestId"],
-                  "LogicalResourceId": event["LogicalResourceId"],
-              }
-
-              print("Responding: {}".format(response_status))
-
-              if reason:
-                  print(reason)
-                  body["Reason"] = reason
-
-              if response_data:
-                  print(response_data)
-                  body["Data"] = response_data
-
-              body = json.dumps(body).encode("utf-8")
-
-              req = Request(event["ResponseURL"], data=body, headers={
-                  "Content-Length": len(body),
-                  "Content-Type": "",
-              })
-              req.get_method = lambda: "PUT"
-
-              try:
-                  urlopen(req)
-                  return True
-              except HTTPError as e:
-                  print("Failed executing HTTP request: {}".format(e.code))
-                  return False
-              except URLError as e:
-                  print("Failed to reach the server: {}".format(e.reason))
-                  return False
-
-          def get_VPC_CIDR(VpcId, Region):
-              try:
-                  ec2 = boto3.resource("ec2", region_name=Region)
-              except ClientError as e:
-                  return {
-                  "StatusCode" : 400,
-                  "Message" : e.response['Error']['Message']
-              }
-              try:
-                  vpc = ec2.Vpc(VpcId)
-              except ClientError as e:
-                  return {
-                  "StatusCode" : 400,
-                  "Message" : e.response['Error']['Message']
-              }
-
-              print(f"REQUEST for VPC {VpcId}")
-              try:
-                  cidr = vpc.cidr_block
-              except ClientError as e:
-                  return {
-                  "StatusCode" : 400,
-                  "Message" : e.response['Error']['Message']
-              }
-                  
-              if cidr is None:
-                  return {
-                      "StatusCode" : 400,
-                      "Message" : "No CIDR returned"
-                  }
-
-              return {
-                  "StatusCode" : 200,
-                  "VpcId" : VpcId,
-                  "Region" : Region,
-                  "CidrBlock" : cidr,
-                  "Message" : "OK"
-              }
-
-          def handler(event, context):
-              print("RECEIVED")
-              print(event)
-              print(event.get("RequestType"))
-              #print
-              if event.get("RequestType") == "Delete":
-                  return send_response(event, context, "SUCCESS")
-              
-              requestProperties = event.get("ResourceProperties")
-              vpc_id = requestProperties.get("VpcId")
-              region = requestProperties.get("Region")
-                  
-              print(f"VpcId: {vpc_id}, Region: {region}")
-              answer = get_VPC_CIDR(vpc_id, region)
-              print(answer)
-
-              if answer["StatusCode"] == 400:
-                  print(f"FAILED: {answer['Message']}")
-                  return send_response(event, context, "FAILED", reason=answer["Message"])
-
-              print(f"SUCCESS: {answer['CidrBlock']}")
-              return send_response(event, context, "SUCCESS", response_data={
-                      "CidrBlock": answer["CidrBlock"]
-                  }
-              )
-              
-      Runtime: python3.7
-      Handler: index.handler
-      Role: !GetAtt CidrOfVpcRole.Arn
-  
-  CidrOfVpc:
-    Type: 'Custom::CidrOfVpcLambda'
-    Properties:
-      ServiceToken: !GetAtt CidrOfVpcLambda.Arn
-      VpcId: !Ref VPCID
-      Region: !Ref 'AWS::Region'
+      TemplateURL: >-
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14-autoscaling/pyramid-base-resources-parameters.yaml
+      Parameters:
+        BaseStackName: !Ref AWS::StackName
+        VPCID: !Ref VPCID
+        KeyPairName: !Ref KeyPairName
+        HTTPAccessCIDR: !Ref HTTPAccessCIDR
+        AllowSSHSecurityGroup: !Ref AllowSSHSecurityGroup
+        InitialUsername: !Ref InitialUsername
+        InitialUserPassword: !Ref InitialUserPassword
 
   CreateRepositoryDatabaseService:
     Type: 'AWS::CloudFormation::Stack'
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
+    DependsOn: BaseResourcesParameters
     Properties:
       TemplateURL: >-
         https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14-autoscaling/pyramid-repository-database.yaml
       Parameters:
+        BaseStackName: !Ref AWS::StackName
         RDSDeploymentType: !Ref RDSDeploymentType
         VPCID: !Ref VPCID
         SubnetIds: !Join 
           - ','
           - !Ref NewRDSSubnets
-        DBAccessCIDR: !GetAtt CidrOfVpc.CidrBlock
         DBServiceName: !Ref RDSServiceName
         DBMasterUsername: !Ref RDSUser
         DBMasterUserPassword: !Ref RDSPassword
 
-  CentralInstance:
+  RepositoryDatabaseTypeSSM:
+    Type: AWS::SSM::Parameter
+    DependsOn: CreateRepositoryDatabaseService
+    Properties:
+      Name: !Sub '/Pyramid/${AWS::StackName}/RepositoryDatabaseType'
+      Type: String
+      Value: !If
+        - DatabaseTypeIsMicrosoft
+        - MicrosoftSQLServer
+        - PostgreSQL
+      Description: Database type for repository in RDS
+      Tags:
+        StackName: !Sub '${AWS::StackName}'
+        Vendor: Pyramid
+
+  RepositoryDatabaseServiceNameSSM:
+    Type: AWS::SSM::Parameter
+    DependsOn: CreateRepositoryDatabaseService
+    Properties:
+      Name: !Sub '/Pyramid/${AWS::StackName}/RepositoryDatabaseServiceName'
+      Type: String
+      Value: !Ref RDSServiceName
+      Description: RDS service name of repository
+      Tags:
+        StackName: !Sub '${AWS::StackName}'
+        Vendor: Pyramid
+
+  RepositoryDatabaseAddressSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/Pyramid/${AWS::StackName}/RepositoryDatabaseAddress'
+      Type: String
+      Value: !GetAtt CreateRepositoryDatabaseService.Outputs.RDSEndPointAddress
+      Description: RDS domain of repository
+      Tags:
+        StackName: !Sub '${AWS::StackName}'
+        Vendor: Pyramid
+
+  RepositoryDatabasePortSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/Pyramid/${AWS::StackName}/RepositoryDatabasePort'
+      Type: String
+      Value: !GetAtt CreateRepositoryDatabaseService.Outputs.RDSEndPointPort
+      Description: Port for repository in RDS
+      Tags:
+        StackName: !Sub '${AWS::StackName}'
+        Vendor: Pyramid
+
+  RepositoryDatabaseUsernameSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/Pyramid/${AWS::StackName}/RepositoryDatabaseUsername'
+      Type: String
+      Value: !GetAtt CreateRepositoryDatabaseService.Outputs.DBMasterUsername
+      Description: User name for repository in RDS
+      Tags:
+        StackName: !Sub '${AWS::StackName}'
+        Vendor: Pyramid
+
+  RDSPasswordSecret:
+    Type: 'AWS::SecretsManager::Secret'
+    DependsOn: CreateRepositoryDatabaseService
+    Properties:
+      Name: !Sub '/Pyramid/${AWS::StackName}/RepositoryDatabasePassword'
+      Description: Password for RDS service
+      SecretString: !Ref RDSPassword
+      Tags:
+        -
+          Key: StackName
+          Value: !Ref AWS::StackName
+        -
+          Key: Vendor
+          Value: Pyramid
+
+  RepositoryDatabasePasswordARNSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/Pyramid/${AWS::StackName}/RepositoryDatabasePasswordARN'
+      Type: String
+      Value: !Ref RDSPasswordSecret
+      Description: ARN of repository database password Secret
+      Tags:
+        StackName: !Sub '${AWS::StackName}'
+        Vendor: Pyramid
+
+  RepositoryDatabaseNameSSM:
+    Type: AWS::SSM::Parameter
+    DependsOn: CreateRepositoryDatabaseService
+    Properties:
+      Name: !Sub '/Pyramid/${AWS::StackName}/RepositoryDatabaseName'
+      Type: String
+      Value: !Ref RDSName
+      Description: Repository schema name in RDS service
+      Tags:
+        StackName: !Sub '${AWS::StackName}'
+        Vendor: Pyramid
+
+  RepositoryDatabaseEncryptionKeyARNSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/Pyramid/${AWS::StackName}/RepositoryDatabaseEncryptionKeyARN'
+      Type: String
+      Value: !GetAtt CreateRepositoryDatabaseService.Outputs.RDSEncryptionKeyARN
+      Description: Encryption key for Repository RDS Service
+      Tags:
+        StackName: !Sub '${AWS::StackName}'
+        Vendor: Pyramid
+
+  PyramidProcessesSecurityGroupRepositoryAccess:
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      GroupId: !GetAtt CreateRepositoryDatabaseService.Outputs.RDSSecurityGroupId
+      IpProtocol: tcp
+      FromPort: !GetAtt CreateRepositoryDatabaseService.Outputs.RDSEndPointPort
+      ToPort: !GetAtt CreateRepositoryDatabaseService.Outputs.RDSEndPointPort
+      SourceSecurityGroupId: !GetAtt BaseResourcesParameters.Outputs.PyramidProcessesSecurityGroupId
+
+  RestoreBackup:
     Type: 'AWS::CloudFormation::Stack'
+    Condition: RestoreFromBackup
+    DependsOn:
+      - PyramidProcessesSecurityGroupRepositoryAccess
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14-autoscaling/pyramid-central-instance.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14-autoscaling/pyramid-backup-restore-s3.yaml
+      Parameters:
+        BackupRestore: restore
+        BaseStackName: !Ref AWS::StackName
+        BucketName: !Ref BackupS3Bucket
+        BucketFolder: !Ref BackupS3Folder
+        Subnet: !Ref Subnet
+
+  CentralInstance:
+    Type: 'AWS::CloudFormation::Stack'
+    DependsOn:
+      - BaseResourcesParameters
+      - PyramidProcessesSecurityGroupRepositoryAccess
+    Properties:
+      TemplateURL: >-
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14-autoscaling/pyramid-single-instance.yaml
       Parameters:
         AMIID: !FindInMap 
           - AWSAMIRegionMap
           - !Ref 'AWS::Region'
           - '64'
-        BaseStackName: !Ref 'AWS::StackName'
+        BaseStackName: !Ref AWS::StackName
+        PyramidProcess: Everything
+        InstancePurpose: CentralInstance
         InstanceType: !Ref InstanceType
-        VPCID: !Ref VPCID
+        WorkloadSecurityGroups: !Join 
+          - ','
+          - - !GetAtt BaseResourcesParameters.Outputs.WebAccessSecurityGroup
+            - !GetAtt BaseResourcesParameters.Outputs.PyramidProcessesSecurityGroup
+            - !GetAtt BaseResourcesParameters.Outputs.MountTargetSecurityGroup
         Subnet: !Ref Subnet
-        VPCCIDR: !GetAtt CidrOfVpc.CidrBlock
-        KeyPairName: !Ref KeyPairName
         AssignPublicIP: !Ref AssignPublicIP
-        HTTPAccessCIDR: !Ref HTTPAccessCIDR
-        AllowSSHSecurityGroup: !Ref AllowSSHSecurityGroup
-        InitialUsername: !Ref InitialUsername
-        InitialUserPassword: !Ref InitialUserPassword
-        RDSType: !If
-          - DatabaseTypeIsMicrosoft
-          - MicrosoftSQLServer
-          - PostgreSQL
-        RDSAddress: !GetAtt CreateRepositoryDatabaseService.Outputs.RDSEndPointAddress
-        RDSPort: !GetAtt CreateRepositoryDatabaseService.Outputs.RDSEndPointPort
-        RDSName: !Ref RDSName
-        RDSUser: !Ref RDSUser
-        RDSPassword: !Ref RDSPassword
-        InitializeRepository: true
-        BackupS3BucketAndFolder: !Ref BackupS3BucketAndFolder
+        InstallProxy: true
+        RepositoryType: !If
+          - RestoreFromBackup
+          - currentremote
+          - newremote
+        #  Unused parameter. Only for dependency management in calling CFTs
+        BackupS3BucketAndFolder: !If
+          - RestoreFromBackup
+          - !GetAtt RestoreBackup.Outputs.BackupBucket
+          - No backup
+
+  # CentralInstance:
+  #   Type: 'AWS::CloudFormation::Stack'
+  #   Properties:
+  #     TemplateURL: >-
+  #       https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14-autoscaling/pyramid-central-instance.yaml
+  #     Parameters:
+        # AMIID: !FindInMap 
+        #   - AWSAMIRegionMap
+        #   - !Ref 'AWS::Region'
+        #   - '64'
+  #       BaseStackName: !Ref AWS::StackName
+  #       InstanceType: !Ref InstanceType
+  #       VPCID: !Ref VPCID
+  #       Subnet: !Ref Subnet
+  #       # VPCCIDR: !GetAtt CidrOfVpc.CidrBlock
+  #       PyramidProcessesSecurityGroup: !Ref PyramidProcessesSecurityGroup
+  #       WebAccessSecurityGroup: !Ref WebAccessSecurityGroup
+  #       KeyPairName: !Ref KeyPairName
+  #       AssignPublicIP: !Ref AssignPublicIP
+  #       # HTTPAccessCIDR: !Ref HTTPAccessCIDR
+  #       # AllowSSHSecurityGroup: !Ref AllowSSHSecurityGroup
+  #       InitialUsername: !Ref InitialUsername
+  #       InitialUserPassword: !Ref InitialUserPassword
+  #       RDSType: !If
+  #         - DatabaseTypeIsMicrosoft
+  #         - MicrosoftSQLServer
+  #         - PostgreSQL
+  #       RDSAddress: !GetAtt CreateRepositoryDatabaseService.Outputs.RDSEndPointAddress
+  #       RDSPort: !GetAtt CreateRepositoryDatabaseService.Outputs.RDSEndPointPort
+  #       RDSName: !Ref RDSName
+  #       RDSUser: !Ref RDSUser
+  #       RDSPassword: !Ref RDSPassword
+  #       InitializeRepository: true
+  #       BackupS3BucketAndFolder: !Ref BackupS3BucketAndFolder
 
 Outputs:
   PyramidPublicURL:
@@ -495,23 +555,33 @@ Outputs:
   KeyPairName:
     Value: !Ref KeyPairName
     Description: Key Pair for instances
-  PyramidProcessesSecurityGroup:
-    Value: !GetAtt CentralInstance.Outputs.PyramidProcessesSecurityGroup
-    Description: Security Group for Pyramid instances' internal communication
+
   PyramidRole:
-    Value: !GetAtt CentralInstance.Outputs.PyramidRole
+    Value: !GetAtt BaseResourcesParameters.Outputs.PyramidRole
     Description: IAM Role for instances launched from this stack
   PyramidInstanceProfile:
-    Value: !GetAtt CentralInstance.Outputs.PyramidInstanceProfile
+    Value: !GetAtt BaseResourcesParameters.Outputs.PyramidInstanceProfile
     Description: IAM Instance Profile for instances launched from this stack
+  PyramidProcessesSecurityGroup:
+    Value: !GetAtt BaseResourcesParameters.Outputs.PyramidProcessesSecurityGroup
+    Description: Security Group for Pyramid instances' internal communication
   MountTargetSecurityGroup:
-    Value: !GetAtt CentralInstance.Outputs.MountTargetSecurityGroup
+    Value: !GetAtt BaseResourcesParameters.Outputs.MountTargetSecurityGroup
     Description: Security Group for EFS Mount Targets
+
   SharedFileSystem:
-    Value: !GetAtt CentralInstance.Outputs.SharedFileSystem
+    Value: !GetAtt BaseResourcesParameters.Outputs.SharedFileSystem
     Description: EFS file system ID for the shared file system across the deployment
+
+  InitialUsername:
+    Value: !Ref InitialUsername
+    Description: Initial Pyramid user name
+
   RepositoryDatabaseType:
-    Value: !GetAtt CentralInstance.Outputs.RepositoryDatabaseType
+    Value: !If
+      - DatabaseTypeIsMicrosoft
+      - MicrosoftSQLServer
+      - PostgreSQL
     Description: RDS Database type
   RepositoryDatabaseAddress:
     Value: !GetAtt CreateRepositoryDatabaseService.Outputs.RDSEndPointAddress
@@ -519,18 +589,21 @@ Outputs:
   RepositoryDatabasePort:
     Value: !GetAtt CreateRepositoryDatabaseService.Outputs.RDSEndPointPort
     Description: Repository database port
+  RepositoryDatabaseServiceName:
+    Value: !Ref RDSServiceName
+    Description: Repository database RDS Service name
   RepositoryDatabaseUsername:
     Value: !Ref RDSUser
     Description: Repository database user name
   RepositoryDatabasePasswordARN:
-    Value: !GetAtt CentralInstance.Outputs.RepositoryDatabasePasswordARN
+    Value: !Ref RDSPasswordSecret
     Description: RDS Password in Secrets Manager
   RepositoryDatabaseName:
     Value: !Ref RDSName
     Description: Repository database schema name
-  InitialUsername:
-    Value: !Ref InitialUsername
-    Description: Initial Pyramid user name
   RDSSecurityGroup:
     Value: !GetAtt CreateRepositoryDatabaseService.Outputs.RDSSecurityGroup
     Description: Security Group access to repository
+  RDSEncryptionKeyARN:
+    Value: !GetAtt CreateRepositoryDatabaseService.Outputs.RDSEncryptionKeyARN
+    Description: Repository database encryption key ARN

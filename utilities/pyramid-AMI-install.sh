@@ -6,9 +6,20 @@
 pwd
 ls -lsa
 amazon-linux-extras enable nginx1 R3.4 epel postgresql10
+
 yum clean metadata
 
-yum -y install amazon-efs-utils amazon-cloudwatch-agent postgresql nginx yum-cron
+yum -y install amazon-efs-utils amazon-cloudwatch-agent  nginx yum-cron 
+
+# not doing the restore in the main Pyramid AMI
+# https://kagarlickij.com/install-microsoft-sqlcmd-command-line-tools-aws-linux/
+# Add the RHEL 6 library for Centos-7 of MSSQL driver. Centos7 uses RHEL-6 Libraries.
+# curl https://packages.microsoft.com/config/rhel/6/prod.repo > /etc/yum.repos.d/mssql-release.repo
+
+# yum -i install postgresql
+# ACCEPT_EULA=y yum install mssql-tools -y
+# ln -s /opt/mssql-tools/bin/sqlcmd /usr/bin
+
 yum -y update
 
 chkconfig yum-cron on

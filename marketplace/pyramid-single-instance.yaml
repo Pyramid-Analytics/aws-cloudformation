@@ -48,7 +48,7 @@ Metadata:
       RunOnce:
         default: Run once and terminate
       BackupS3BucketAndFolder:
-        default: S3 bucket and optional path to a Pyramid backup
+        default: Unused. Only for dependency management in calling CFTs
       InstallProxy:
         default: Install nginx as a proxy to the Pyramid web server
 Parameters:
@@ -108,11 +108,9 @@ Parameters:
     Description: >-
       S3 path to a Pyramid backup
     Type: String
-    MaxLength: '1000'
     Default: ''
-    AllowedPattern: '^$|(?=^.{5,1000}$)[a-zA-Z][-_a-zA-Z0-9/\=()]*$'
     ConstraintDescription: >-
-      Optional. Otherwise min 5 characters. First character must be a letter. Must contain only letters, digits, '/', '-', '_', '=', '*' or parentheses.
+      Unused. Only for dependency management in calling CFTs
   InstallProxy:
     Description: >-
       Install nginx as a proxy to the Pyramid web server.
@@ -412,25 +410,7 @@ Resources:
 #   repoBackup/$baseStackName-repository-$timestamp.dump
 #     backups
 #     ignore these in Pyramid instances
-            1-execute-restore:
-              test: !Join
-                - ''
-                - - '[ -n "'
-                  - !Ref BackupS3BucketAndFolder
-                  - '" ]'
-              # restore-from-s3 \
-              #   Pyr-v8 \
-              #   pyr-v8-backup-s3bucket-17f7k5buabvbh/2020-11-11-08-50-14
-              #   subnet-01892aa0ff74872e0 \
-              #   us-east-1 
-              command: !Join
-                - ' '
-                - - '/usr/src/pyramid/restore-from-s3.sh'
-                  - !Ref BaseStackName
-                  - !Ref BackupS3BucketAndFolder
-                  - 'true'
-              ignoreErrors: 'false'
-            2-generate-unattended-install-settings:
+            1-generate-unattended-install-settings:
               command: !Join
                 - ' '
                 - - '/usr/src/pyramid/unattended-install-settings.sh'
@@ -438,14 +418,14 @@ Resources:
                   - !Ref RepositoryType
                   - !Ref PyramidProcess
               ignoreErrors: 'false'
-            3-install:
+            2-install:
               cwd: /usr/src/pyramid
               command: "for i in Pyramid*.run; do /usr/src/pyramid/$i --mode unattended --optionfile /usr/src/pyramid/pyramid-unattended-install.ini; done"
               ignoreErrors: 'false'
-            4-cleanup:
+            3-cleanup:
               command: "rm /usr/src/pyramid/pyramid-unattended-install.ini && rm -f /tmp/pyr*.log && rm -f /tmp/bit*.log"
               ignoreErrors: 'false'
-            5-mount-shared-fs:
+            4-mount-shared-fs:
               command: !Join
                 - ' '
                 - - '/usr/src/pyramid/mnt-efs.sh --mountPoint /mnt/pyramid'
@@ -453,7 +433,7 @@ Resources:
                   - !Ref BaseStackName
                   - '--efsRootDirectory /shared'
               ignoreErrors: 'false'
-            6-mount-IMDB-fs:
+            5-mount-IMDB-fs:
               test: !Join
                 - ''
                 - - '[[ ''Everything,InMemoryDB'' == *"'
