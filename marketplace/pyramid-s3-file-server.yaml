@@ -41,7 +41,6 @@ Parameters:
     Description: Base StackName this stack is a part of
     Type: String
     MinLength: '1'
-    MaxLength: '32'
     AllowedPattern: '[-_a-zA-Z0-9]*'
     ConstraintDescription: Required
   InstancePurpose:

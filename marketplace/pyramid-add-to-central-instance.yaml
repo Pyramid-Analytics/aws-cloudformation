@@ -33,6 +33,7 @@ Parameters:
     Description: StackName of a Central instance deployment being added onto.
     Type: String
     MinLength: '1'
+    AllowedPattern: '[-_a-zA-Z0-9]*'
     ConstraintDescription: Required
   InstanceType:
     Description: >-
