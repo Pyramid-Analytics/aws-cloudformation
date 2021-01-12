@@ -19,8 +19,6 @@ Metadata:
           - AllowSSHSecurityGroup
           - InitialUsername
           - InitialUserPassword
-          - BackupS3Bucket
-          - BackupS3Folder
       - Label:
           default: New Repository Database Service
         Parameters:
@@ -30,6 +28,11 @@ Metadata:
           - RDSUser
           - RDSPassword
           - RDSName
+      - Label:
+          default: Pyramid S3 backup to restore from
+        Parameters:
+          - BackupS3Bucket
+          - BackupS3Folder
     ParameterLabels:
       KeyPairName:
         default: Key pair name
@@ -64,7 +67,7 @@ Metadata:
         default: Initial Pyramid User password
       BackupS3Bucket:
         default: S3 bucket containing a Pyramid backup
-      BackupS3BucketAndFolder:
+      BackupS3Folder:
         default: Path under S3 bucket to a Pyramid backup
 Parameters:
   KeyPairName:
@@ -155,13 +158,6 @@ Parameters:
     AllowedPattern: '[a-zA-Z][-_a-zA-Z0-9]*'
     ConstraintDescription: >-
       Min 5 characters. First character must be a letter. Must contain only letters, digits, '-' or underscores.
-  # NewRDSServiceMode:
-  #   Description: Database Engine Mode
-  #   Type: String
-  #   Default: serverless
-  #   AllowedValues:
-  #     - serverless
-  #     - provisioned
   NewRDSSubnets:
     Description: Subnets to deploy the new PostgreSQL RDS cluster into.  At least 2 must be entered, even when using existing
           service.
@@ -190,12 +186,6 @@ Parameters:
     ConstraintDescription: >-
       Min 8 characters. Can contain only alphanumeric characters, minus and
       underscores.
-  # RDSPort:
-  #   Description: RDS Port
-  #   Type: Number
-  #   Default: '5432'
-  #   MinValue: '1024'
-  #   ConstraintDescription: Port number must be higher than 1024
   RDSName:
     Description: Repository database name in the RDS service.
     Type: String
@@ -243,9 +233,9 @@ Parameters:
     Type: String
     Default: ''
     MaxLength: '1000'
-    AllowedPattern: '^$|^(?=^.{5,1000}$)[a-zA-Z0-9][-_a-zA-Z0-9/\=()]*$'
+    AllowedPattern: '^$|^(?=^.{5,1000}$)[a-zA-Z0-9][-_a-zA-Z0-9/\=()+]*$'
     ConstraintDescription: >-
-      Optional. Otherwise min 5 characters. First character must be a letter or number. Must contain only letters, digits, '/', '-', '_', '=' or parentheses.
+      Optional. Otherwise min 5 characters. First character must be a letter or number. Must contain only letters, digits, '/', '-', '+', '_', '=' or parentheses.
 Mappings:
 
   AWSAMIRegionMap:
@@ -497,41 +487,6 @@ Resources:
           - RestoreFromBackup
           - !GetAtt RestoreBackup.Outputs.BackupBucket
           - No backup
-
-  # CentralInstance:
-  #   Type: 'AWS::CloudFormation::Stack'
-  #   Properties:
-  #     TemplateURL: >-
-  #       https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14-autoscaling/pyramid-central-instance.yaml
-  #     Parameters:
-        # AMIID: !FindInMap 
-        #   - AWSAMIRegionMap
-        #   - !Ref 'AWS::Region'
-        #   - '64'
-  #       BaseStackName: !Ref AWS::StackName
-  #       InstanceType: !Ref InstanceType
-  #       VPCID: !Ref VPCID
-  #       Subnet: !Ref Subnet
-  #       # VPCCIDR: !GetAtt CidrOfVpc.CidrBlock
-  #       PyramidProcessesSecurityGroup: !Ref PyramidProcessesSecurityGroup
-  #       WebAccessSecurityGroup: !Ref WebAccessSecurityGroup
-  #       KeyPairName: !Ref KeyPairName
-  #       AssignPublicIP: !Ref AssignPublicIP
-  #       # HTTPAccessCIDR: !Ref HTTPAccessCIDR
-  #       # AllowSSHSecurityGroup: !Ref AllowSSHSecurityGroup
-  #       InitialUsername: !Ref InitialUsername
-  #       InitialUserPassword: !Ref InitialUserPassword
-  #       RDSType: !If
-  #         - DatabaseTypeIsMicrosoft
-  #         - MicrosoftSQLServer
-  #         - PostgreSQL
-  #       RDSAddress: !GetAtt CreateRepositoryDatabaseService.Outputs.RDSEndPointAddress
-  #       RDSPort: !GetAtt CreateRepositoryDatabaseService.Outputs.RDSEndPointPort
-  #       RDSName: !Ref RDSName
-  #       RDSUser: !Ref RDSUser
-  #       RDSPassword: !Ref RDSPassword
-  #       InitializeRepository: true
-  #       BackupS3BucketAndFolder: !Ref BackupS3BucketAndFolder
 
 Outputs:
   PyramidPublicURL:

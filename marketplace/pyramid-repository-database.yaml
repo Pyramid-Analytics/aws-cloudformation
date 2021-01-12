@@ -58,6 +58,9 @@ Parameters:
   BaseStackName:
     Description: Base Stack Name
     Type: String
+    MinLength: '1'
+    AllowedPattern: '[-_a-zA-Z0-9]*'
+    ConstraintDescription: Required
   RDSDeploymentType:
     Description: Database type
     Type: String
@@ -274,21 +277,6 @@ Resources:
       Family: !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "family"]
       Parameters:
         rds.force_ssl: 0
-
-  SQLServerOptionGroup:
-    Type: 'AWS::RDS::OptionGroup'
-    Condition: SQLServer
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
-    Properties:
-      EngineName: !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "engine"]
-      MajorEngineVersion: !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "majorEngineVersion"]
-      OptionGroupDescription: SQL Server Native Backup and Restore
-      OptionConfigurations:
-        - OptionName: SQLSERVER_BACKUP_RESTORE
-          OptionSettings:
-            - Name: IAM_ROLE_ARN
-              Value: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/{{resolve:ssm:/Pyramid/${BaseStackName}/PyramidRole:1}}'
             
   DBClusterParameterGroup:
     Type: AWS::RDS::DBClusterParameterGroup
@@ -344,10 +332,10 @@ Resources:
         - !Ref 'AWS::NoValue'
       Port: !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "port"]
       DBSubnetGroupName: !Ref DBSubnetGroup
-      OptionGroupName: !If
-        - SQLServer
-        - !Ref SQLServerOptionGroup
-        - !Ref 'AWS::NoValue'
+      # OptionGroupName: !If
+      #   - SQLServer
+      #   - !Ref SQLServerOptionGroup
+      #   - !Ref 'AWS::NoValue'
       VPCSecurityGroups: 
         - !Ref RDSSecurityGroup
       DBParameterGroupName: !If
