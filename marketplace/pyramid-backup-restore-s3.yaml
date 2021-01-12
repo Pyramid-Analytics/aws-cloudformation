@@ -20,6 +20,10 @@ Metadata:
           - LatestAmiId
           - Subnet
           - RunOnce
+      - Label:
+          default: Administration
+        Parameters:
+          - DependencyValue
     ParameterLabels:
       BackupRestore:
         default: Backing up or restoring?
@@ -35,6 +39,8 @@ Metadata:
         default: Subnet within the Pyramid deployment VPC
       RunOnce:
         default: Run backup/restore and stop
+      DependencyValue:
+        default: Unused. Support CloudFormation dependency
 Parameters:
   LatestAmiId:
     Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
@@ -44,7 +50,6 @@ Parameters:
     Description: Base StackName to backup from or restore to.
     Type: String
     MinLength: '1'
-    MaxLength: '32'
     AllowedPattern: '[-_a-zA-Z0-9]*'
     ConstraintDescription: Required
   BackupRestore:
@@ -65,23 +70,30 @@ Parameters:
   BucketFolder:
     Description: Optional. For backup, a date-timestamp folder will be created under this.
     Type: String
-    MaxLength: '64'
-    AllowedPattern: '[-_a-zA-Z0-9/=]*'
-    ConstraintDescription: Optional
+    MaxLength: '1000'
+    AllowedPattern: '^$|^(?=^.{5,1000}$)[a-zA-Z0-9][-_a-zA-Z0-9/\=()+]*$'
+    ConstraintDescription: >-
+      Optional. Otherwise min 5 characters. First character must be a letter or number. Must contain only letters, digits, '/', '-', '+', '_', '=' or parentheses.
   RunOnce:
     Description: >-
-      Run scripts and stop.
+      Run scripts and stop, or launch instance and not backup/restore
     Type: String
     Default: true
     AllowedValues:
       - true
       - false
+      - noProcess
     ConstraintDescription: Required
   Subnet:
     Description: >-
       To run the backup/restore instance
     Type: 'AWS::EC2::Subnet::Id'
     ConstraintDescription: Required
+  DependencyValue:
+    Description: Just for CFT dependency
+    Type: String
+    Default: ''
+
 Conditions:
   CreateS3Bucket: !Equals
    - !Ref BucketName
@@ -96,6 +108,10 @@ Conditions:
   TerminateInstance: !Equals
    - !Ref RunOnce
    - 'true'
+  DontRunProcesses: !Equals
+   - !Ref RunOnce
+   - 'noProcess'
+
 Resources:
   InstanceWaitHandle:
     Type: 'AWS::CloudFormation::WaitConditionHandle'
@@ -103,8 +119,8 @@ Resources:
     Type: 'AWS::CloudFormation::WaitCondition'
     Properties:
       Handle: !Ref InstanceWaitHandle
-      # 10 mins
-      Timeout: '600'
+      # 15 mins
+      Timeout: '900'
       Count: 1
 
   NowFunc:
@@ -193,10 +209,10 @@ Resources:
           - Sid: KeyManagement
             Effect: Allow
             Action:
-              - kms:DescribeKey
-              - kms:GenerateDataKey
-              - kms:Encrypt
-              - kms:Decrypt
+              - 'kms:DescribeKey'
+              - 'kms:GenerateDataKey'
+              - 'kms:Encrypt'
+              - 'kms:Decrypt'
             Resource:
               - !Sub 'arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/Pyramid/${BaseStackName}/*'
           - Sid: SSMGetParameters
@@ -207,6 +223,28 @@ Resources:
             Resource:
               - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/Pyramid/${BaseStackName}/*'
               - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/Pyramid/${BaseStackName}'
+          - Sid: RDSAccess
+            Effect: Allow
+            Action:
+              - 'rds:ModifyDBInstance'
+              - 'rds:DescribeDBInstances'
+              - 'rds:CopyOptionGroup'
+              - 'rds:DescribeOptionGroups'
+              - 'rds:ModifyOptionGroup'
+              - 'rds:DeleteOptionGroup'
+            Resource:
+              - !Join
+                - ''
+                - - 'arn:'
+                  - !Ref AWS::Partition
+                  - ':rds:'
+                  - !Ref AWS::Region
+                  - ':'
+                  - !Ref AWS::AccountId
+                  - ':db:'
+                  - !Sub "{{resolve:ssm:/Pyramid/${BaseStackName}/RepositoryDatabaseServiceName:1}}"
+                  # - !Select [ 0, !Split [ ".", !Sub "{{resolve:ssm:/Pyramid/${BaseStackName}/RepositoryDatabaseAddress:1}}" ]]
+              - !Sub 'arn:${AWS::Partition}:rds:${AWS::Region}:${AWS::AccountId}:og:*'
       Roles:
         - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/PyramidRole:1}}'
 
@@ -221,7 +259,10 @@ Resources:
             - 01_setupCfnHup
             - 02_config-amazon-cloudwatch-agent
             - 03_restart_amazon-cloudwatch-agent
-            - BackupRestorePyramid
+            - !If
+              - DontRunProcesses
+              - !Ref AWS::NoValue
+              - BackupRestorePyramid
           UpdateEnvironment:
             - 02_config-amazon-cloudwatch-agent
             - 03_restart_amazon-cloudwatch-agent
@@ -534,10 +575,211 @@ Resources:
 
                 echo "Mounted EFS $efsId to $mountPoint"
 
-              mode: '000755'
-              owner: root
-              group: root
+              mode: '755'
 
+            /usr/src/pyramid/get-option-group-status.sh:
+              content: |
+                #!/bin/bash
+                rdsServiceName=$1
+                waitForInSync=${2:-true}
+                targetOptionGroup=$3
+
+                # return var
+                # find current in-sync option group
+                # wait for the $targetOptionGroup to be in-sync
+
+                TOKEN=`curl -sS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600"`
+
+                region=`curl -sS -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/dynamic/instance-identity/document | grep -oP '\"region\"[[:space:]]*:[[:space:]]*\"\K[^\"]+'`
+
+                # Wait for the modify to work
+                sleepTime=20
+                maxTimes=10
+                notificationCount=5
+                count=0
+                while true
+                do
+                    currentOptionGroups=`aws rds describe-db-instances --db-instance-identifier $rdsServiceName --region $region --output text  | grep OPTIONGROUPMEMBERSHIPS`
+
+                    if [ -z "$currentOptionGroups" ] ; then
+                      >&2 echo "describe-db-instances failed"
+                      exit 1
+                    fi
+                    currentOptionGroup=
+                    status=
+                    returnValue=
+
+                    while read -r c1 c2 c3 ; do
+                        currentOptionGroup="$c2"
+                        status="$c3"
+                        >&2 echo "found option group: $currentOptionGroup, status $status"
+                        if [ "$status" = "in-sync" ] ; then
+                            if [ "$waitForInSync" != "true" ] ; then
+                                returnValue=$currentOptionGroup
+                                break
+                            elif [[ "$waitForInSync" = "true" && "$currentOptionGroup" = "$targetOptionGroup" ]] ; then
+                                returnValue=$targetOptionGroup
+                                break
+                            fi
+                        fi
+                    done <<< "$currentOptionGroups"
+
+                    if [ ! -z "$returnValue" ] ; then
+                        echo "$returnValue"
+                        break
+                    fi 
+
+                    count=$(( count + 1  ))
+                    if [ "$count" -ge "$maxTimes" ] ; then
+                        >&2 echo "Option group update did not succeed after ${maxTimes} tries, waiting ${sleepTime} seconds between tries... Exiting"
+                        exit 1
+                    elif  ! (( count % notificationCount )) ; then
+                        >&2 echo "Option group update in progress: $status ...continuing to wait"
+                    fi
+                    sleep $sleepTime
+                done
+
+              mode: '755'
+
+            /usr/src/pyramid/set-sqlserver-options-for-backup-restore.sh:
+              content: |
+                #!/bin/bash
+                baseStackName=$1
+
+                TOKEN=`curl -sS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600"`
+
+                region=`curl -sS -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/dynamic/instance-identity/document | grep -oP '\"region\"[[:space:]]*:[[:space:]]*\"\K[^\"]+'`
+                accountId=`curl -sS -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/dynamic/instance-identity/document | grep -oP '\"accountId\"[[:space:]]*:[[:space:]]*\"\K[^\"]+'`
+                partition=`curl -sS -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/services/partition`
+
+                rdsAddress=`aws ssm get-parameter --name "/Pyramid/$baseStackName/RepositoryDatabaseAddress" --region $region --output text | cut -f 7`
+                if [[ -z "${rdsAddress}" ]] ; then
+                    echo "rdsAddress parameter at /Pyramid/$baseStackName/RepositoryDatabaseAddress missing"
+                    exit 1
+                fi
+                rdsServiceName=`echo $rdsAddress | cut -d '.' -f 1`
+
+                # get current option group 
+
+                originalOptionGroup=`/usr/src/pyramid/get-option-group-status.sh $rdsServiceName false`
+
+                # copy the existing option group
+                aTimestamp=$(date +"%Y-%m-%d-%H-%M")
+
+                optionGroupCopy="$rdsServiceName-backup-sqlserver-$aTimestamp"
+
+                result=`aws rds copy-option-group \
+                    --source-option-group-identifier $originalOptionGroup \
+                    --target-option-group-identifier $optionGroupCopy \
+                    --target-option-group-description "Copy of $originalOptionGroup for backup" \
+                    --region $region --output text`
+
+                # OPTIONGROUP     True    sqlserver-se    14.00   arn:aws:rds:us-east-1:343272018671:og:repo-sqlserver-copy   Copy of currentOptionGroup for backup    repo-sqlserver-copy
+
+                if [[ -z "${result}" ]] ; then
+                    echo "copy option group failed"
+                    exit 1
+                fi
+
+                # add the SQLSERVER_BACKUP_RESTORE option with role to the copy 
+
+                pyramidRole=`aws ssm get-parameter --name "/Pyramid/$baseStackName/PyramidRole" --region $region --output text | cut -f 7`
+
+                backupRoleARN="arn:$partition:iam::$accountId:role/$pyramidRole"
+
+                result=`aws rds add-option-to-option-group \
+                  --option-group-name $optionGroupCopy \
+                  --options "OptionName=SQLSERVER_BACKUP_RESTORE,OptionSettings=[{Name=IAM_ROLE_ARN,Value=$backupRoleARN}]" \
+                  --apply-immediately \
+                  --region $region --output text`
+
+                if [[ -z "${result}" ]] ; then
+                    echo "add to option group failed"
+                    exit 1
+                fi
+
+                # modify_db_instance with the copy
+                result=`aws rds modify-db-instance \
+                      --db-instance-identifier $rdsServiceName \
+                      --option-group-name $optionGroupCopy \
+                      --apply-immediately \
+                      --region $region --output text`
+
+                if [[ -z "${result}" ]] ; then
+                    echo "modify-db-instance failed"
+                    exit 1
+                fi
+
+                result=`/usr/src/pyramid/get-option-group-status.sh $rdsServiceName true $optionGroupCopy`
+
+                echo "set option group for RDS service $rdsServiceName to $optionGroupCopy"
+
+                echo "$originalOptionGroup" > /tmp/originalOptionGroup
+                echo "$optionGroupCopy" > /tmp/copyOptionGroup
+
+              mode: '755'
+
+            /usr/src/pyramid/remove-sqlserver-options-for-backup-restore.sh:
+              content: |
+                #!/bin/bash
+                baseStackName=$1
+
+                TOKEN=`curl -sS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600"`
+
+                region=`curl -sS -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/dynamic/instance-identity/document | grep -oP '\"region\"[[:space:]]*:[[:space:]]*\"\K[^\"]+'`
+                accountId=`curl -sS -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/dynamic/instance-identity/document | grep -oP '\"accountId\"[[:space:]]*:[[:space:]]*\"\K[^\"]+'`
+                partition=`curl -sS -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/services/partition`
+
+                rdsAddress=`aws ssm get-parameter --name "/Pyramid/$baseStackName/RepositoryDatabaseAddress" --region $region --output text | cut -f 7`
+                if [[ -z "${rdsAddress}" ]] ; then
+                    echo "rdsAddress parameter at /Pyramid/$baseStackName/RepositoryDatabaseAddress missing"
+                    exit 1
+                fi
+                rdsServiceName=`echo $rdsAddress | cut -d '.' -f 1`
+
+                originalOptionGroup=`cat /tmp/originalOptionGroup`
+                optionGroupCopy=`cat /tmp/copyOptionGroup`
+
+                # get current option group 
+
+                currentOptionGroup=`/usr/src/pyramid/get-option-group-status.sh $rdsServiceName false`
+
+                # should be the copy
+                if [ "$currentOptionGroup" != "$optionGroupCopy" ] ; then 
+                    echo "in-sync option group is $currentOptionGroup - not $optionGroupCopy"
+                    exit 1
+                fi
+
+                # modify_db_instance back to the original
+                result=`aws rds modify-db-instance \
+                      --db-instance-identifier $rdsServiceName \
+                      --option-group-name $originalOptionGroup \
+                      --apply-immediately \
+                      --region $region --output text`
+
+                if [[ -z "${result}" ]] ; then
+                    echo "modify-db-instance failed"
+                    exit 1
+                fi
+
+                # wait for the modification
+                currentOptionGroup=`/usr/src/pyramid/get-option-group-status.sh $rdsServiceName true $originalOptionGroup`
+
+                echo "set option group for RDS service $rdsServiceName to $currentOptionGroup"
+
+                # not deleting, since it may have been used b a snapshot 
+
+                # delete the option group copy
+                # aws rds delete-option-group \
+                #       --option-group-name $optionGroupCopy \
+                #       --region $region --output text
+
+                # if [ $? -ne 0 ] ; then
+                #   echo "delete-option-group failed"
+                #   # exit 1
+                # fi
+
+              mode: '755'
 
             /usr/src/pyramid/backup-to-s3.sh:
               content: |
@@ -585,40 +827,6 @@ Resources:
                   mkdir -p /mnt/pyramid/repoBackup
                 fi
 
-                # catch the 2020-13 release approach of having an EFS volume per IMDB
-                # dump each IMDB file system to s3
-                ssmParams=`aws ssm get-parameters-by-path --path "/Pyramid/$baseStackName" --recursive --region $region --output text`
-                # looking for SSM parameters of the forms:
-                #    '/Pyramid/$baseStackName/${AWS::StackName}/IMDBFileSystem'
-                while read line ; do
-                  # name is cut -f 1
-                  name=`echo $line | cut -d " " -f 5`
-                  endPortion=`echo $name | cut -d '/' -f 5`
-
-                  # echo "<$name> **** <$endPortion>"
-                  if [[ "${endPortion}" == "IMDBFileSystem" ]] ; then
-                    # value is cut -f 3
-                    fileSystemId=`echo $line | cut -d " " -f 7`
-                    # echo "fileSystemId - $fileSystemId"
-                    /usr/src/pyramid/mnt-efs.sh \
-                      --mountPoint /mnt/pyramid-imdb/$fileSystemId \
-                      --subnet $subnet \
-                      --securityGroup $mtSecurityGroup \
-                      --efsId $fileSystemId \
-                      --region $region
-
-                    mkdir -p /mnt/pyramid/imdb/$fileSystemId
-                    echo "copying $fileSystemId to $sharedFileSystemEFS /imdb/$fileSystemId"
-                    # cp -p -R /mnt/pyramid-imdb/$fileSystemId/. /mnt/pyramid/imdb/$fileSystemId
-                    # --remove-source-files \
-                    rsync \
-                      --chown=pyramid:pyramid \
-                      /mnt/pyramid-imdb/$fileSystemId /mnt/pyramid/imdb/$fileSystemId
-                    umount /mnt/pyramid-imdb/$fileSystemId
-                    rm -rf /mnt/pyramid-imdb/$fileSystemId
-                  fi
-                done <<< "$ssmParams"
-
                 # deal with an EFS volume without a /shared directory
                 if [ ! -d /mnt/pyramid/shared ] ; then
                   mkdir /mnt/pyramid/shared
@@ -654,6 +862,9 @@ Resources:
                   ;;
 
                 MicrosoftSQLServer)
+
+                  /usr/src/pyramid/set-sqlserver-options-for-backup-restore.sh $baseStackName 
+
                   if [ ! -z "${bucketFolder}"] ; then
                     s3SQLServerDestination="arn:$partition:s3:::$bucketName/$bucketFolder/$label/repoBackup/$baseStackName-repository-$label.bak"
                   else
@@ -661,6 +872,7 @@ Resources:
                   fi
                   backupRequest=`sqlcmd -S tcp:$rdsAddress,$rdsPort -U $rdsUsername -P $rdsPassword -h -1 -s"~"\
                     -Q "exec msdb.dbo.rds_backup_database @source_db_name='$rdsName', @s3_arn_to_backup_to='$s3SQLServerDestination', @type='FULL';"`
+                    
                     # @kms_master_key_arn='arn:aws:kms:us-east-1:123456789012:key/AKIAIOSFODNN7EXAMPLE', 
 
                   if [ $? -ne 0 ] ; then
@@ -698,12 +910,6 @@ Resources:
                   fi
 
                   # https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/SQLServer.Procedural.Importing.html
-                  # Line 1: column names
-                  # task_id, task_type, database_name, % complete, duration(mins), lifecycle, task_info, last_updated,
-                  # created_at, S3_object_arn,
-                  # overwrite_S3_backup_file KMS_master_key_arn, filepath, overwrite_file
-
-                  # line 2: column headers. minuses
 
                   # line 3: data
                   # 2
@@ -747,7 +953,9 @@ Resources:
                   fi
 
                   # ======================================
-                  done 
+                  done
+
+                  /usr/src/pyramid/remove-sqlserver-options-for-backup-restore.sh $baseStackName 
 
                   ;;
                 *)
@@ -848,12 +1056,14 @@ Resources:
                 dumpFile=`ls -t1 /mnt/pyramid-backup/repoBackup/*.dump |  tail -n 1`
 
                 if [[ -z "${dumpFile}" ]] ; then
-                  dumpFile=`ls -t1 /mnt/pyramid-backup/repoBackup/*.bak |  tail -n 1`
-                  if [[ -z "${dumpFile}" ]] ; then
-                    echo "No *.dump files in /mnt/pyramid-backup/repoBackup directory. Exiting..."
+                  bakFile=`ls -t1 /mnt/pyramid-backup/repoBackup/*.bak |  tail -n 1`
+                  if [[ -z "${bakFile}" ]] ; then
+                    echo "No *.dump or *.bak files in /mnt/pyramid-backup/repoBackup directory. Exiting..."
                     exit 1
                   else
                     rdsType=MicrosoftSQLServer
+                    len=`expr length "/mnt/pyramid-backup/repoBackup/"`
+                    bakFile=${bakFile:$len}
                   fi
                 else
                   rdsType=PostgreSQL
@@ -866,9 +1076,9 @@ Resources:
 
                 rdsPassword=`aws secretsmanager get-secret-value --secret-id /Pyramid/$baseStackName/RepositoryDatabasePassword --region $region --output text | cut -f 4`
 
-                echo "restoring $dumpFile to database $rdsName on service $rdsAddress"
                 case "${rdsType}" in
                 PostgreSQL)
+                  echo "restoring PostgreSQL $dumpFile to database $rdsName on service $rdsAddress"
 
                   # create a new database and restore the repository dump into it
                   export PGPASSWORD=$rdsPassword
@@ -888,10 +1098,15 @@ Resources:
                   fi
                   ;;
                 MicrosoftSQLServer)
-                  s3SQLServerBackup="arn:$partition:s3:::$bucketAndFolder/repoBackup/$dumpFile"
+
+                  /usr/src/pyramid/set-sqlserver-options-for-backup-restore.sh $baseStackName 
+
+                  s3SQLServerBackup="arn:$partition:s3:::$bucketAndFolder/repoBackup/$bakFile"
+                  echo "restoring SQL Server $s3SQLServerBackup to database $rdsName on service $rdsAddress"
 
                   restoreRequest=`sqlcmd -S tcp:$rdsAddress,$rdsPort -U $rdsUsername -P $rdsPassword -h -1 -s"~"\
                     -Q "exec msdb.dbo.rds_restore_database @restore_db_name='$rdsName', @s3_arn_to_restore_from='$s3SQLServerBackup', @type='FULL';"`
+                    
                     # @kms_master_key_arn='arn:aws:kms:us-east-1:123456789012:key/AKIAIOSFODNN7EXAMPLE', 
 
                   if [ $? -ne 0 ] ; then
@@ -933,8 +1148,6 @@ Resources:
                   # created_at, S3_object_arn,
                   # overwrite_S3_backup_file KMS_master_key_arn, filepath, overwrite_file
 
-                  # line 2: column headers. minuses
-
                   # line 3: data
                   # 2
                   # BACKUP_DB
@@ -968,6 +1181,7 @@ Resources:
                     break
                   elif [[ " ${failureStatuses[@]} " =~ " ${lifecycle} " ]]; then
                     echo "restore failed: $lifecycle"
+                    echo "$c1 $c2 $c3 $c4 $c5 $c6 $c7 $c8 $c9 $c10"
                     exit 1
                   else 
                     echo "restore status: $lifecycle. percent complete: $completePct. waiting 30 secs"
@@ -976,19 +1190,19 @@ Resources:
 
                   # ======================================
                   done 
-                  # sqlcmd -S localhost -U SA -Q "RESTORE DATABASE [demodb] FROM DISK = N'/var/opt/mssql/data/demodb.bak' WITH FILE = 1, NOUNLOAD, REPLACE, NORECOVERY, STATS = 5"
-                  # sqlcmd -S tcp:$rdsAddress,$rdsPort -U $rdsUsername -P $rdsPassword \
-                  #   -Q "RESTORE DATABASE [$rdsName] FROM DISK = N'$dumpFile' WITH FILE = 1, NOUNLOAD, REPLACE, STATS = 5"
 
                   if [ "${clearOldServers}" == "true" ] ; then
                     echo "Deleting server_instances"
                     sqlcmd -S tcp:$rdsAddress,$rdsPort -U $rdsUsername -P $rdsPassword -h -1 -s"~" \
-                        -Q "delete from [$rdsName].server_instances;"
+                        -d $rdsName \
+                        -Q "delete from server_instances;"
                     if [ $? -ne 0 ] ; then
                       echo "rds_task_status execution failed"
                       exit 1
                     fi
                   fi
+
+                  /usr/src/pyramid/remove-sqlserver-options-for-backup-restore.sh $baseStackName 
                   ;;
                 *)
                   echo "invalid database type <$rdsType>"
@@ -999,8 +1213,6 @@ Resources:
                 rm -rf /mnt/pyramid-backup
 
               mode: '000755'
-              owner: root
-              group: root
 
           commands:
             0-create-pyramid-user:
@@ -1008,17 +1220,14 @@ Resources:
             1-execute-restore:
               test: !Join
                 - ''
-                # - - '[ -n "'
-                #   - !Ref BackupRestore
-                #   - '" ]'
                 - - '[[ ''restore'' == *"'
                   - !Ref BackupRestore
                   - '"* ]]'
-              # restore-from-s3 \
+              # restore-from-s3.sh \
               #   Pyr-v8 \
-              #   pyr-v8-backup-s3bucket-17f7k5buabvbh/2020-11-11-08-50-14
-              #   subnet-01892aa0ff74872e0 \
-              #   us-east-1 
+              #   true
+              #   pyr-v8-backup-s3bucket-17f7k5buabvbh
+              #   2020-11-11-08-50-14
               command: !Join
                 - ' '
                 - - '/usr/src/pyramid/restore-from-s3.sh'
@@ -1029,17 +1238,13 @@ Resources:
                     - IncludeBucketFolder
                     - !Ref BucketFolder
                     - !Ref AWS::NoValue
-              ignoreErrors: 'false'
             2-execute-backup:
               test: !Join
                 - ''
-                # - - '[ -n "'
-                #   - !Ref BackupRestore
-                #   - '" ]'
                 - - '[[ ''backup'' == *"'
                   - !Ref BackupRestore
                   - '"* ]]'
-              # backup-to-s3 \
+              # backup-to-s3.sh \
               #   2020-11-13-15-00-00 \
               #   Pyr-v8 \
               #   pyr-v8-backup-s3bucket-17f7k5buabvbh
@@ -1056,7 +1261,9 @@ Resources:
                     - IncludeBucketFolder
                     - !Ref BucketFolder
                     - !Ref AWS::NoValue
-              ignoreErrors: 'false'
+            # without an extra command, the logs of the last command do not make it to CloudWatch
+            3-finish-up:
+              command: sleep 60 && echo "finished backup"
 
     Properties:
       ImageId: !Ref LatestAmiId
@@ -1137,8 +1344,11 @@ Resources:
           Value: Backup
 
 Outputs:
+  BackupRestore:
+    Value: !Ref BackupRestore
+
   BackupBucket:
-    Description: Backup S3 Bucket
+    Description: S3 Bucket
     Value: !If
       - CreateS3Bucket
       - !Ref S3Bucket
@@ -1154,7 +1364,16 @@ Outputs:
           - !Ref BucketName
         - !If
           - IncludeBucketFolder
-          - !Sub "/${BucketFolder}/"
-          - '/'
-        - !GetAtt GetTimeThisTime.Time
+          - !Sub "/${BucketFolder}"
+          - ''
+        - !If
+          - Backup
+          - !Join
+            - ''
+            - - '/'
+              - !GetAtt GetTimeThisTime.Time
+          - ''
 
+  DependencyValue:
+    Description: "An output to make a dependency"
+    Value: MakeMeDependent
