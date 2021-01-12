@@ -37,7 +37,9 @@ Parameters:
   BaseStackName:
     Description: Base Stack Name
     Type: String
-    Default: ''
+    MinLength: '1'
+    AllowedPattern: '[-_a-zA-Z0-9]*'
+    ConstraintDescription: Required
   KeyPairName:
     Description: Name of an existing EC2 key pair for SSH connections.
     Type: 'AWS::EC2::KeyPair::KeyName'
@@ -165,6 +167,12 @@ Resources:
                 Effect: Allow
                 Action:
                   - 'ec2:DescribeSubnets'
+                Resource: '*'
+              - Sid: PassRole
+                Effect: Allow
+                Action:
+                  - 'iam:GetRole'
+                  - 'iam:PassRole'
                 Resource: '*'
 
   PyramidRoleSSM:
