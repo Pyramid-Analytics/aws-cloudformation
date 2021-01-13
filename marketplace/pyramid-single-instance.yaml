@@ -21,7 +21,7 @@ Metadata:
           - PyramidProcess
           - InstancePurpose
           - RunOnce
-          - BackupS3BucketAndFolder
+          - DependencyValue
       - Label:
           default: Repository Database configuration
         Parameters:
@@ -47,7 +47,7 @@ Metadata:
         default: Cluster instance type
       RunOnce:
         default: Run once and terminate
-      BackupS3BucketAndFolder:
+      DependencyValue:
         default: Unused. Only for dependency management in calling CFTs
       InstallProxy:
         default: Install nginx as a proxy to the Pyramid web server
@@ -103,13 +103,11 @@ Parameters:
       - true
       - false
     ConstraintDescription: Required
-  BackupS3BucketAndFolder:
+  DependencyValue:
     Description: >-
-      S3 path to a Pyramid backup
+      Unused. Only for dependency management in calling CFTs
     Type: String
     Default: ''
-    ConstraintDescription: >-
-      Unused. Only for dependency management in calling CFTs
   InstallProxy:
     Description: >-
       Install nginx as a proxy to the Pyramid web server.
@@ -577,3 +575,7 @@ Outputs:
     Value: !GetAtt PyramidInstance.PrivateDnsName
     Description: Instance Private DNS name
 
+
+  DependencyValue:
+    Description: "An output to make a dependency"
+    Value: !Ref DependencyValue

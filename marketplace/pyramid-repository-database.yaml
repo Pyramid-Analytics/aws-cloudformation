@@ -276,7 +276,7 @@ Resources:
       Description: !Join [ "- ", [ "Repository database",  !Ref RDSDeploymentType, "for Stack", !Ref BaseStackName ] ]
       Family: !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "family"]
       Parameters:
-        rds.force_ssl: 0
+        rds.force_ssl: '0'
             
   DBClusterParameterGroup:
     Type: AWS::RDS::DBClusterParameterGroup
@@ -285,7 +285,7 @@ Resources:
       Description: !Join [ "- ", [ "Repository database",  !Ref RDSDeploymentType, "for Stack", !Ref BaseStackName ] ]
       Family: !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "clusterFamily"]
       Parameters:
-        rds.force_ssl: 0
+        rds.force_ssl: '0'
         log_rotation_age: '1440'
         log_rotation_size: '102400'
 

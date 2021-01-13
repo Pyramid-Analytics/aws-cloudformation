@@ -196,10 +196,10 @@ Parameters:
     Default: pyramid
     MinLength: '6'
     MaxLength: '64'
-    AllowedPattern: '[a-zA-Z][-_a-zA-Z0-9]*'
+    AllowedPattern: '[a-zA-Z][_a-zA-Z0-9]*'
     ConstraintDescription: >-
       Min 6 characters. Must begin with a letter and contain only alphanumeric
-      characters, minus and underscores.
+      characters and underscores.
   InitializeRepository:
     Description: If not restoring from backup, initialize Pyramid Repository database name. false assumes database name exists
     Type: String
@@ -290,10 +290,6 @@ Conditions:
   PublicIP: !Equals
     - !Ref AssignPublicIP
     - 'true'
-  AllowSSH: !Not 
-    - !Equals 
-      - !Ref AllowSSHSecurityGroup
-      - ''
   RestoreFromBackup: !Not 
     - !Equals 
       - !Ref BackupS3Bucket
@@ -303,9 +299,6 @@ Conditions:
     - !Equals
       - !Ref InitializeRepository
       - 'false'
-  RunSQLOptions: !And
-    - !Condition DatabaseTypeIsMicrosoft
-    - !Condition RestoreFromBackup
 
 
 Resources:
@@ -446,7 +439,6 @@ Resources:
   CentralInstance:
     Type: 'AWS::CloudFormation::Stack'
     DependsOn:
-      - BaseResourcesParameters
       - PyramidProcessesSecurityGroupRepositoryAccess
     Properties:
       TemplateURL: >-
@@ -473,7 +465,7 @@ Resources:
           - currentremote
           - newremote
         #  Unused parameter. Only for dependency management in calling CFTs
-        BackupS3BucketAndFolder: !If
+        DependencyValue: !If
           - RestoreFromBackup
           - !GetAtt RestoreBackup.Outputs.BackupBucket
           - No backup

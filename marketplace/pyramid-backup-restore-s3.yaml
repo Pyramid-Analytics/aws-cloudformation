@@ -175,6 +175,7 @@ Resources:
     Properties:
       AccessControl: BucketOwnerFullControl
     DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
 
   BackupManagedPolicy:
     Type: 'AWS::IAM::ManagedPolicy'
@@ -1376,4 +1377,4 @@ Outputs:
 
   DependencyValue:
     Description: "An output to make a dependency"
-    Value: MakeMeDependent
+    Value: !Ref DependencyValue
