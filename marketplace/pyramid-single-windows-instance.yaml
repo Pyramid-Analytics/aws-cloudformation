@@ -107,7 +107,7 @@ Parameters:
       - m5n.12xlarge
       - c5.2xlarge
       - c5.4xlarge
-      - c5.8xlarge
+      # - c5.8xlarge
       - c5.12xlarge
       - c5a.2xlarge
       - c5a.4xlarge
@@ -115,8 +115,8 @@ Parameters:
       - c5a.12xlarge
       - c5n.2xlarge
       - c5n.4xlarge
-      - c5n.8xlarge
-      - c5n.12xlarge
+      # - c5n.8xlarge
+      # - c5n.12xlarge
     Default: c5.2xlarge
     ConstraintDescription: Must contain valid instance type.
 

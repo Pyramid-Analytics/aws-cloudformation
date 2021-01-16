@@ -3,19 +3,23 @@ general:  # [OPTIONAL] General configuration settings.
   # global config take precedence
   # [OPTIONAL] Name of S3 bucket to upload project to, if left out a bucket will be
   # auto-generated
+
   s3_bucket: pyramid-taskcat
+
   tags:  # [OPTIONAL] Tags to apply to CloudFormation template
     Name: pyramid-taskcat
-project:  # [REQUIRED] Project specific configuration section
-  # [REQUIRED] Project name, used as s3 key prefix when uploading objects
+project:
   name:  pyramid
+
   # [OPTIONAL] List of Availablilty Zones ID's to exclude when generating azs
   # az_blacklist:
   #   - use1-az1
   # [OPTIONAL] Parameter key-values to pass to CloudFormation, parameters provided in
   # general section take precedence
+
   regions: # List of AWS regions
     - us-east-1
+
   # [OPTIONAL] Name of S3 bucket to upload project to, if left out a bucket will be
   # auto-generated
   # tags:  # [OPTIONAL] Tags to apply to CloudFormation template
@@ -23,19 +27,10 @@ project:  # [REQUIRED] Project specific configuration section
   # [REQUIRED] path to template file relative to the project config file path. If
   # defined, template is optional in tests
   # template: ./templates/template.yaml
-tests:  # [REQUIRED] Test definition section
+
+
+tests:
   central-instance-new-repository:
-    # [OPTIONAL] Parameter key-values to pass to CloudFormation, parameters provided in
-    # general section take precedence
-    # parameters:
-    #   MyOtherParam: OtherValue
-    # [OPTIONAL] Name of S3 bucket to upload project to, if left out a bucket will be
-    # auto-generated
-    # s3_bucket: my-s3-bucket
-    # tags:  # [OPTIONAL] Tags to apply to CloudFormation template
-    #   MyTagKey: MyTagValue
-      # [REQUIRED] path to template file relative to the project config file path. If
-      # template is defined in project section this can be ommitted
     parameters:
       VPCID: vpc-091dd86c6e438068d
       Subnet: subnet-01947522cba134c85
@@ -49,8 +44,8 @@ tests:  # [REQUIRED] Test definition section
       RDSUser: pyramid-taskcat
       RDSPassword: pyramid-taskcat12345
       RDSName: pyramid-taskcat
-
     template: ./templates/pyramid-central-instance-new-repository.yaml
+
   central-instance-existing-repository:
     parameters:
       VPCID: vpc-091dd86c6e438068d
@@ -58,13 +53,22 @@ tests:  # [REQUIRED] Test definition section
       InstanceType: c5.4xlarge
       KeyPairName: pyramid-taskcat
       HTTPAccessCIDR: 0.0.0.0/0
+      AssignPublicIP: false
+      AllowSSHSecurityGroup: sg-afad1b5895e5c418
       InitialUsername: admin
       InitialUserPassword: adminadmin
+      RDSDeploymentType: MicrosftSQLServer
       RDSAddress: pyramid-taskcat.cluster-cfave2vnma46.us-east-1.rds.amazonaws.com
+      RDSPort: 1433
       RDSUser: pyramid-taskcat
       RDSPassword: pyramid-taskcat12345
       RDSName: pyramid-taskcat
+      RDSSecurityGroup: sg-afad1b58ddd23418
+      BackupS3Bucket: endlessBucket
+      BackupS3Folder: folder/of/some/depth
     template: ./templates/pyramid-central-instance-existing-repository.yaml
+
+
   add-to-central-instance:
     parameters:
       BaseStackName: anExistingPyramidCentralStackNme
@@ -72,3 +76,41 @@ tests:  # [REQUIRED] Test definition section
       InstanceType: c5.2xlarge
       PyramidProcess: TaskEngine
     template: ./templates/pyramid-add-to-central-instance.yaml
+
+
+  backup-s3:
+    parameters:
+      BackupRestore: backup
+      BaseStackName: anExistingPyramidCentralStackNme
+      BucketName: endlessBucket
+      BucketFolder: folder/of/some/depth
+      Subnet: subnet-01892aa0ff74872e0
+    template: ./templates/pyramid-backup-restore-s3.yaml
+
+
+# only called within the context of the Central Instance creation
+#  restore-s3:
+#    parameters:
+#      BackupRestore: restore
+#      BaseStackName: anExistingPyramidCentralStackNme
+#      BucketName: endlessBucket
+#      BucketFolder: folder/of/some/depth
+#     Subnet: subnet-01892aa0ff74872e0
+#    template: ./templates/pyramid-backup-restore-s3.yaml
+
+
+  DNC-Launch:
+    parameters:
+      BaseStackName: anExistingPyramidCentralStackNme
+      InstancePurpose: WindowsConnector
+      WindowsPyramidInstallerURL: https://pyramid-cloudformation.s3.amazonaws.com/content/software/Pyramid-2020.14.035-windows-server-installer.exe
+      InstanceType: c5.4xlarge
+      Subnet: subnet-01892aa0ff74872e0
+      DomainControllerIp: 10.0.25.32
+      DomainDNSName: example.com
+      DomainNetBiosName: example
+      DomainAdminUser: Admin
+      AdminPassword: crazycrazy
+    template: ./templates/pyramid-single-windows-instance.yaml
+
+
