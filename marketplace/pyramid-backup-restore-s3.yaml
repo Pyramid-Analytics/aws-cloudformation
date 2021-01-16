@@ -834,7 +834,7 @@ Resources:
                   find /mnt/pyramid/ -type f -maxdepth 1  -exec cp -t /mnt/pyramid/shared/ {} +
                 fi
 
-                if [ ! -z "${bucketFolder}"] ; then
+                if [ ! -z "${bucketFolder}" ] ; then
                   s3Destination="s3://$bucketName/$bucketFolder/$label"
                 else
                   s3Destination="s3://$bucketName/$label"
@@ -866,7 +866,7 @@ Resources:
 
                   /usr/src/pyramid/set-sqlserver-options-for-backup-restore.sh $baseStackName 
 
-                  if [ ! -z "${bucketFolder}"] ; then
+                  if [ ! -z "${bucketFolder}" ] ; then
                     s3SQLServerDestination="arn:$partition:s3:::$bucketName/$bucketFolder/$label/repoBackup/$baseStackName-repository-$label.bak"
                   else
                     s3SQLServerDestination="arn:$partition:s3:::$bucketName/$label/repoBackup/$baseStackName-repository-$label.bak"
