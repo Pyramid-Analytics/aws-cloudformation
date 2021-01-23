@@ -134,9 +134,6 @@ Parameters:
       Has to be available for the deployment region.
     Type: String
     AllowedValues:
-      - c4.2xlarge
-      - c4.4xlarge
-      - c4.8xlarge
       - c5.2xlarge
       - c5.4xlarge
       - c5.9xlarge
@@ -246,13 +243,15 @@ Parameters:
       - x1e.8xlarge
       - x1e.16xlarge
       - x1e.32xlarge
-    Default: c5a.2xlarge
+    Default: c5.2xlarge
     ConstraintDescription: Must contain valid instance type.
 Mappings:
   AWSAMIRegionMap:
     us-east-1:
       # 2020.14.035 - autoscaling
-      '64': ami-01a0fa635f41f579d
+      #'64': ami-0bc27a356344f2352
+      # 2020.15.046
+      '64': ami-0a7c1129e58bf86d8
     us-east-2:
       '64': XXX
     us-west-1:
@@ -362,7 +361,7 @@ Resources:
     Type: 'AWS::CloudFormation::Stack'
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14-autoscaling/pyramid-autoscale-component.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-15/pyramid-autoscale-instances.yaml
       Parameters:
         BaseStackName: !Ref BaseStackName
         PyramidProcess: EverythingExceptInMemoryDB
