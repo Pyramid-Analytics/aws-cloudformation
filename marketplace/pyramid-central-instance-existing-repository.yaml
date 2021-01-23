@@ -1,7 +1,7 @@
 AWSTemplateFormatVersion: 2010-09-09
 Description: >-
-  Deploys a single instance of Pyramid 2020 with all services and a new Aurora
-  Postgres cluster for the repository database. To be deployed in a public
+  Deploys a single instance of Pyramid 2020 with all services and a new RDS 
+  instance for the repository database. To be deployed in a public
   subnet, as the Pyramid web server is available on port 80. You will be billed
   for the AWS resources used if you create a stack from this template. 
 Metadata:
@@ -154,7 +154,7 @@ Parameters:
       - MicrosoftSQLServer
   RDSAddress:
     Description: >-
-      Domain name of exisitng PostgreSQL RDS service (ie. pyramid.cluster-cfave2vnma46.us-east-1.rds.amazonaws.com)
+      Domain name of exisitng RDS service (ie. pyramid.cluster-cfave2vnma46.us-east-1.rds.amazonaws.com)
     Type: String
     MinLength: '5'
     MaxLength: '128'
@@ -185,9 +185,8 @@ Parameters:
       Min 8 characters. Can contain only alphanumeric characters, minus and
       underscores.
   RDSPort:
-    Description: RDS Port
+    Description: RDS Port. Standards are 5432 for PostgreSQL and 1433 for Microsft SQL Server.
     Type: Number
-    Default: '5432'
     MinValue: '1024'
     ConstraintDescription: Port number must be higher than 1024
   RDSName:
@@ -256,7 +255,9 @@ Mappings:
       # 2020.13.100
       # '64': ami-029d57f27fac5962a
       # 2020.14.035
-      '64': ami-0bc27a356344f2352
+      #'64': ami-0bc27a356344f2352
+      # 2020.15.046
+      '64': ami-0a7c1129e58bf86d8
 
 Rules:
   SubnetsNotEmpty:
@@ -307,7 +308,7 @@ Resources:
     Type: 'AWS::CloudFormation::Stack'
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14-autoscaling/pyramid-base-resources-parameters.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-15/pyramid-base-resources-parameters.yaml
       Parameters:
         BaseStackName: !Ref AWS::StackName
         VPCID: !Ref VPCID
@@ -428,7 +429,7 @@ Resources:
       - PyramidProcessesSecurityGroupRepositoryAccess
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14-autoscaling/pyramid-backup-restore-s3.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-15/pyramid-backup-restore-s3.yaml
       Parameters:
         BackupRestore: restore
         BaseStackName: !Ref AWS::StackName
@@ -442,7 +443,7 @@ Resources:
       - PyramidProcessesSecurityGroupRepositoryAccess
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14-autoscaling/pyramid-single-instance.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-15/pyramid-single-instance.yaml
       Parameters:
         AMIID: !FindInMap 
           - AWSAMIRegionMap

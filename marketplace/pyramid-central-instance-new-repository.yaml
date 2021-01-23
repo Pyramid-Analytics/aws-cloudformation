@@ -159,7 +159,7 @@ Parameters:
     ConstraintDescription: >-
       Min 5 characters. First character must be a letter. Must contain only letters, digits, '-' or underscores.
   NewRDSSubnets:
-    Description: Subnets to deploy the new PostgreSQL RDS cluster into.  At least 2 must be entered, even when using existing
+    Description: Subnets to deploy the new RDS cluster into.  At least 2 must be entered, even when using existing
           service.
     Type: 'List<AWS::EC2::Subnet::Id>'
     ConstraintDescription: Required
@@ -236,14 +236,16 @@ Parameters:
     AllowedPattern: '^$|^(?=^.{5,1000}$)[a-zA-Z0-9][-_a-zA-Z0-9/\=()+]*$'
     ConstraintDescription: >-
       Optional. Otherwise min 5 characters. First character must be a letter or number. Must contain only letters, digits, '/', '-', '+', '_', '=' or parentheses.
-Mappings:
 
+Mappings:
   AWSAMIRegionMap:
     us-east-1:
       # 2020.13.100
       # '64': ami-029d57f27fac5962a
       # 2020.14.035
-      '64': ami-0bc27a356344f2352
+      #'64': ami-0bc27a356344f2352
+      # 2020.15.046
+      '64': ami-0a7c1129e58bf86d8
 Rules:
   SubnetsNotEmpty:
     Assertions:
@@ -287,7 +289,7 @@ Resources:
     Type: 'AWS::CloudFormation::Stack'
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14-autoscaling/pyramid-base-resources-parameters.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-15/pyramid-base-resources-parameters.yaml
       Parameters:
         BaseStackName: !Ref AWS::StackName
         VPCID: !Ref VPCID
@@ -304,7 +306,7 @@ Resources:
     DependsOn: BaseResourcesParameters
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14-autoscaling/pyramid-repository-database.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-15/pyramid-repository-database.yaml
       Parameters:
         BaseStackName: !Ref AWS::StackName
         RDSDeploymentType: !Ref RDSDeploymentType
@@ -441,7 +443,7 @@ Resources:
       - PyramidProcessesSecurityGroupRepositoryAccess
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14-autoscaling/pyramid-backup-restore-s3.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-15/pyramid-backup-restore-s3.yaml
       Parameters:
         BackupRestore: restore
         BaseStackName: !Ref AWS::StackName
@@ -455,7 +457,7 @@ Resources:
       - PyramidProcessesSecurityGroupRepositoryAccess
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-14-autoscaling/pyramid-single-instance.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-15/pyramid-single-instance.yaml
       Parameters:
         AMIID: !FindInMap 
           - AWSAMIRegionMap
