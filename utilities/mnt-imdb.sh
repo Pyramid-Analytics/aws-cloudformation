@@ -138,6 +138,7 @@ echo "Current IMDBs in EFS: ${EFSImdbGUIDs}"
 # what IMDBs have we already configured for this deployment?
 
 currentDeploymentImdbGUIDs=()
+foundCurrentStackGUID=
 
 ssmParams=`aws ssm get-parameters-by-path --path "/Pyramid/$baseStackName" --recursive --region $region --output text`
 # looking for SSM parameters of the forms:
@@ -150,35 +151,46 @@ while read line ; do
   # echo "<$name> **** <$endPortion>"
   if [[ "${endPortion}" = "IMDBFileSystem" ]] ; then
     fileSystemGUID=`echo $line | sed 's/\s\s*/ /g' | cut -d " " -f 7`
+    stackName=`echo $name | cut -d '/' -f 4`
+    if [[ "${stackName}" = "$currentStackName" ]] ; then
+      foundCurrentStackGUID=$fileSystemGUID
+      break
+    fi
     currentDeploymentImdbGUIDs+=$fileSystemGUID
   fi
 done <<< "$ssmParams"
 
-echo "Current IMDBs deployed against instances: ${EFSImdbGUIDs}"
-
-for target in "${currentDeploymentImdbGUIDs[@]}"; do
-  for i in "${!EFSImdbGUIDs[@]}"; do
-    if [[ ${EFSImdbGUIDs[i]} = $target ]]; then
-      unset 'EFSImdbGUIDs[i]'
-    fi
-  done
-done
-
-echo "Not yet deployed IMDBs in EFS: ${EFSImdbGUIDs}"
-
-EFSImdbGUIDsSize=${#EFSImdbGUIDs[@]}
-echo "Number of Not yet deployed IMDBs in EFS: ${EFSImdbGUIDsSize}"
-
-if [[ $EFSImdbGUIDsSize > 0 ]] ; then 
-  GUIDToDeploy=${EFSImdbGUIDs[0]}
-  echo "Using existing GUID directory for IMDB: $GUIDToDeploy. Containing:"
-  ls -l $tempMountPoint/imdb/$GUIDToDeploy
+if [ ! -z "$foundCurrentStackGUID" ] ; then
+  echo "Found parameter for $currentStackName : $foundCurrentStackGUID"
+  GUIDToDeploy=$foundCurrentStackGUID
   initialize=false
 else
-  GUIDToDeploy=`date +"%Y-%m-%d-%H-%m-%s%z"`
-  echo "creating GUID directory for new IMDB: $GUIDToDeploy"
-  mkdir $tempMountPoint/imdb/$GUIDToDeploy
-  chown pyramid:pyramid $tempMountPoint/imdb/$GUIDToDeploy
+  echo "Current IMDBs deployed against instances: ${EFSImdbGUIDs}"
+
+  for target in "${currentDeploymentImdbGUIDs[@]}"; do
+    for i in "${!EFSImdbGUIDs[@]}"; do
+      if [[ ${EFSImdbGUIDs[i]} = $target ]]; then
+        unset 'EFSImdbGUIDs[i]'
+      fi
+    done
+  done
+
+  echo "Not yet deployed IMDBs in EFS: ${EFSImdbGUIDs}"
+
+  EFSImdbGUIDsSize=${#EFSImdbGUIDs[@]}
+  echo "Number of Not yet deployed IMDBs in EFS: ${EFSImdbGUIDsSize}"
+
+  if [[ $EFSImdbGUIDsSize > 0 ]] ; then 
+    GUIDToDeploy=${EFSImdbGUIDs[0]}
+    echo "Using existing GUID directory for IMDB: $GUIDToDeploy. Containing:"
+    ls -l $tempMountPoint/imdb/$GUIDToDeploy
+    initialize=false
+  else
+    GUIDToDeploy=`date +"%Y-%m-%d-%H-%m-%s%z"`
+    echo "creating GUID directory for new IMDB: $GUIDToDeploy"
+    mkdir $tempMountPoint/imdb/$GUIDToDeploy
+    chown pyramid:pyramid $tempMountPoint/imdb/$GUIDToDeploy
+  fi
 fi
 
 umount $tempMountPoint
@@ -213,10 +225,12 @@ ls -l $mountPoint
 # Restart the IMDB service
 systemctl start pyramidIMDB
 
-# create SSM param 
-aws ssm put-parameter \
-  --name "/Pyramid/$baseStackName/$currentStackName/IMDBFileSystemId" \
-  --type String \
-  --value $GUIDToDeploy \
-  --overwrite \
-  --region $region
+if [ -z "$foundCurrentStackGUID" ] ; then
+  # create SSM param 
+  aws ssm put-parameter \
+    --name "/Pyramid/$baseStackName/$currentStackName/IMDBFileSystemId" \
+    --type String \
+    --value $GUIDToDeploy \
+    --overwrite \
+    --region $region
+fi
