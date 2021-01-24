@@ -387,8 +387,7 @@ Resources:
         InstallPyramid:
           commands:
 
-# Single EFS volume now
-# /mnt/pyramid
+# Single EFS volume
 
 #   shared/
   #   common file system
@@ -404,10 +403,8 @@ Resources:
 #       create new imdb/<id>
 #     fs:imdb/<id> to /mnt/pyramid-imdb
 
-#   repoBackup/$baseStackName-repository-$timestamp.dump
-#     backups
-#     ignore these in Pyramid instances
             1-generate-unattended-install-settings:
+              test: "ls /usr/src/pyramid/*.run"
               command: !Join
                 - ' '
                 - - '/usr/src/pyramid/unattended-install-settings.sh'
@@ -416,10 +413,12 @@ Resources:
                   - !Ref PyramidProcess
               ignoreErrors: 'false'
             2-install:
+              test: "ls /usr/src/pyramid/*.run"
               cwd: /usr/src/pyramid
               command: "for i in Pyramid*.run; do /usr/src/pyramid/$i --mode unattended --optionfile /usr/src/pyramid/pyramid-unattended-install.ini; done"
               ignoreErrors: 'false'
             3-cleanup:
+              test: "ls /usr/src/pyramid/pyramid-unattended-install.ini"
               command: "rm /usr/src/pyramid/pyramid-unattended-install.ini && rm -f /tmp/pyr*.log && rm -f /tmp/bit*.log"
               ignoreErrors: 'false'
             4-mount-shared-fs:
