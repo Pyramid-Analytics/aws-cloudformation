@@ -38,14 +38,7 @@ fi
 
 # add the SQLSERVER_BACKUP_RESTORE option with role to the copy 
 
-# - OptionName: SQLSERVER_BACKUP_RESTORE
-#   OptionSettings:
-#     - Name: IAM_ROLE_ARN
-#       Value: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/{{resolve:ssm:/Pyramid/${BaseStackName}/PyramidRole:1}}'
-
 pyramidRole=`aws ssm get-parameter --name "/Pyramid/$baseStackName/PyramidRole" --region $region --output text | cut -f 7`
-
-# "OptionName=SQLSERVER_BACKUP_RESTORE,OptionSettings=[{Name=IAM_ROLE_ARN,Value=arn:aws:iam::343272018671:role/repo-sqlserver-BaseResourcesParameters-PyramidRole-1XZJ794GJRK9B}]"
 
 backupRoleARN="arn:$partition:iam::$accountId:role/$pyramidRole"
 
@@ -73,6 +66,8 @@ if [[ -z "${result}" ]] ; then
 fi
 
 result=`/usr/src/pyramid/get-option-group-status.sh $rdsServiceName true $optionGroupCopy`
+
+echo "set option group for RDS service $rdsServiceName to $optionGroupCopy"
 
 echo "$originalOptionGroup" > /tmp/originalOptionGroup
 echo "$optionGroupCopy" > /tmp/copyOptionGroup

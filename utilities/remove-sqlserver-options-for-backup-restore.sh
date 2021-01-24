@@ -42,12 +42,16 @@ fi
 # wait for the modification
 currentOptionGroup=`/usr/src/pyramid/get-option-group-status.sh $rdsServiceName true $originalOptionGroup`
 
-# delete the option group copy
-result=`aws rds delete-option-group \
-      --option-group-name $optionGroupCopy \
-      --region $region --output text`
+echo "set option group for RDS service $rdsServiceName to $currentOptionGroup"
 
-if [[ -z "${result}" ]] ; then
-    echo "delete-option-group failed"
-    exit 1
-fi
+# not deleting, since it may have been used b a snapshot 
+
+# delete the option group copy
+# aws rds delete-option-group \
+#       --option-group-name $optionGroupCopy \
+#       --region $region --output text
+
+# if [ $? -ne 0 ] ; then
+#   echo "delete-option-group failed"
+#   # exit 1
+# fi
