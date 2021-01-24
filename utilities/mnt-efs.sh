@@ -141,12 +141,13 @@ mount_efs() {
   # if the mountPoint directory does not exist
   if [ ! -d "${mountPoint}" ] ; then
     mkdir -p "${mountPoint}"
-    chown "${ownership}" "${mountPoint}"
   else
-    # fail if the mountPoint already exists
-    echo "mountPoint directory ${mountPoint} already exists. exiting..."
-    exit 1
+    # don't fail if the mountPoint already exists
+    echo "mountPoint directory ${mountPoint} already exists. continuing..."
+    # exit 1
   fi
+
+  chown "${ownership}" "${mountPoint}"
 
   # Mount the EFS volume using the AWS EFS helper
   # IAM is used for authentication to EFS
