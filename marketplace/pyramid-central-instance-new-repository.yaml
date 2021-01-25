@@ -87,6 +87,8 @@ Parameters:
       the deployment region.
     Type: String
     AllowedValues:
+      - t3.2xlarge
+      - t3a.2xlarge
       - m5.2xlarge
       - m5.4xlarge
       - m5.8xlarge
@@ -477,7 +479,7 @@ Resources:
         InstallProxy: true
         RepositoryType: !If
           - RestoreFromBackup
-          - currentremote
+          - reuseremote
           - newremote
         #  Unused parameter. Only for dependency management in calling CFTs
         DependencyValue: !If

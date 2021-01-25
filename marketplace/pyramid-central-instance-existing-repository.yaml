@@ -92,6 +92,8 @@ Parameters:
       the deployment region.
     Type: String
     AllowedValues:
+      - t3.2xlarge
+      - t3a.2xlarge
       - m5.2xlarge
       - m5.4xlarge
       - m5.8xlarge

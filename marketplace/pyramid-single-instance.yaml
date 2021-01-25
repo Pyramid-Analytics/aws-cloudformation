@@ -138,6 +138,8 @@ Parameters:
       Has to be available for the deployment region.
     Type: String
     AllowedValues:
+      - t3.2xlarge
+      - t3a.2xlarge
       - c4.2xlarge
       - c4.4xlarge
       - c4.8xlarge
@@ -260,10 +262,9 @@ Parameters:
     AllowedValues:
       - currentremote
       - newremote
-      - newlocal
+      - reuseremote
     Default: currentremote
-    MinLength: '1'
-    ConstraintDescription: Must contain newremote, currentremote or newlocal.
+    ConstraintDescription: Must contain newremote, currentremote or reuseremote.
 Conditions:
   TerminateInstance: !Equals
    - !Ref RunOnce

@@ -99,6 +99,8 @@ esac
 selectRepositoryType="selectCurrentRepository=${databaseType}"
 if [[ "${repositoryType}" == "newremote" ]] ; then
   selectRepositoryType="selectNewRepository=${databaseType}"
+elif [[ "${repositoryType}" == "reuseremote" ]] ; then
+  selectRepositoryType="selectReuseRepository=${databaseType}"
 fi
 
 disableComponentsProperty=''
