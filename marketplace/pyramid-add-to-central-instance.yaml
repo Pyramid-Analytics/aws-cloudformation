@@ -40,6 +40,8 @@ Parameters:
       for the deployment region.
     Type: String
     AllowedValues:
+      - t3.2xlarge
+      - t3a.2xlarge
       - c4.2xlarge
       - c4.4xlarge
       - c4.8xlarge

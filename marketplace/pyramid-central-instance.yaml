@@ -113,12 +113,12 @@ Parameters:
       the deployment region.
     Type: String
     AllowedValues:
-      - m5.xlarge
+      - t3.2xlarge
+      - t3a.2xlarge
       - m5.2xlarge
       - m5.4xlarge
       - m5.8xlarge
       - m5.12xlarge
-      - m5a.xlarge
       - m5a.2xlarge
       - m5a.4xlarge
       - m5a.8xlarge
@@ -128,22 +128,19 @@ Parameters:
       - m5n.4xlarge
       - m5n.8xlarge
       - m5n.12xlarge
-      - c5.xlarge
       - c5.2xlarge
       - c5.4xlarge
       - c5.8xlarge
       - c5.12xlarge
-      - c5a.xlarge
       - c5a.2xlarge
       - c5a.4xlarge
       - c5a.8xlarge
       - c5a.12xlarge
-      - c5n.xlarge
       - c5n.2xlarge
       - c5n.4xlarge
       - c5n.8xlarge
       - c5n.12xlarge
-    Default: c5.4xlarge
+    Default: c5.2xlarge
     ConstraintDescription: Must be a valid instance type for region.
   AssignPublicIP:
     Description: >-
