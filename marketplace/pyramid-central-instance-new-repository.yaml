@@ -247,7 +247,7 @@ Mappings:
       # 2020.14.035
       #'64': ami-0bc27a356344f2352
       # 2020.15.046
-      '64': ami-02d6f57087391b3d2
+      '64': ami-025ecc72ec9b12b43
 Rules:
   SubnetsNotEmpty:
     Assertions:
