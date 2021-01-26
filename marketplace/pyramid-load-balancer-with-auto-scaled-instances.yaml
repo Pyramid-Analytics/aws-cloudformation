@@ -251,7 +251,7 @@ Mappings:
       # 2020.14.035 - autoscaling
       #'64': ami-0bc27a356344f2352
       # 2020.15.046
-      '64': ami-0a7c1129e58bf86d8
+      '64': ami-09659d5dd77b8f212
     us-east-2:
       '64': XXX
     us-west-1:
