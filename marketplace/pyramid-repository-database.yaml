@@ -309,6 +309,7 @@ Resources:
       Port: !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "port"]
       StorageEncrypted: !If [UseDatabaseEncryption, !Ref DBAllocatedStorageEncrypted, !Ref 'AWS::NoValue']
       KmsKeyId: !If [UseDatabaseEncryption, !GetAtt EncryptionKey.Arn, !Ref 'AWS::NoValue']
+      DeletionProtection: true
       BackupRetentionPeriod: !Ref DBBackupRetentionPeriod
       Tags: 
         - 
@@ -332,10 +333,6 @@ Resources:
         - !Ref 'AWS::NoValue'
       Port: !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "port"]
       DBSubnetGroupName: !Ref DBSubnetGroup
-      # OptionGroupName: !If
-      #   - SQLServer
-      #   - !Ref SQLServerOptionGroup
-      #   - !Ref 'AWS::NoValue'
       VPCSecurityGroups: 
         - !Ref RDSSecurityGroup
       DBParameterGroupName: !If
@@ -347,6 +344,7 @@ Resources:
       AllocatedStorage: !Ref DBAllocatedStorageSize
       StorageEncrypted: !If [UseDatabaseEncryption, !Ref DBAllocatedStorageEncrypted, !Ref 'AWS::NoValue']
       KmsKeyId: !If [UseDatabaseEncryption, !GetAtt EncryptionKey.Arn, !Ref 'AWS::NoValue']
+      DeletionProtection: true
       PubliclyAccessible: false
       AutoMinorVersionUpgrade: !Ref DBAutoMinorVersionUpgrade
       Tags:
@@ -366,6 +364,7 @@ Resources:
         - !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "instanceClass"]
       Engine: !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "engine"]
       EngineVersion: !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "engineVersion"]
+      DeletionProtection: true
       PubliclyAccessible: false
       Tags:
         -
@@ -384,6 +383,7 @@ Resources:
         - !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "instanceClass"]
       Engine: !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "engine"]
       EngineVersion: !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "engineVersion"]
+      DeletionProtection: true
       PubliclyAccessible: false
       Tags:
         -

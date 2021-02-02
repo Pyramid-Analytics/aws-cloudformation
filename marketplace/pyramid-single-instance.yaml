@@ -387,23 +387,6 @@ Resources:
 
         InstallPyramid:
           commands:
-
-# Single EFS volume
-
-#   shared/
-  #   common file system
-  #   fs:/shared to /mnt/pyramid
-  #   create fs:/shared if it does not exist
-
-#   imdb/<id>
-#     individual imdata directories
-#     current list in ssm baseStack/stack/IMDBFileSystem = <id> vs list of imdb/<id>
-#     if list of imdb/<id> is longer than baseStack/stack/IMDBFileSystem
-#       use next imdb/<id> -> baseStack/stack/IMDBFileSystem
-#     else
-#       create new imdb/<id>
-#     fs:imdb/<id> to /mnt/pyramid-imdb
-
             1-generate-unattended-install-settings:
               test: "ls /usr/src/pyramid/*.run"
               command: !Join

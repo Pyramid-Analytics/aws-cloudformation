@@ -173,7 +173,8 @@ Resources:
                 Action:
                   - 'iam:GetRole'
                   - 'iam:PassRole'
-                Resource: '*'
+                Resource:
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/${BaseStackName}*'
 
   PyramidRoleSSM:
     Type: AWS::SSM::Parameter
@@ -369,48 +370,8 @@ Resources:
       Code:
         ZipFile: |
           import boto3
-
+          import cfnresponse 
           from botocore.exceptions import ClientError
-          from urllib.parse import urlencode
-          from urllib.request import urlopen, Request, HTTPError, URLError
-          import json
-
-          def send_response(event, context, response_status, reason=None, response_data={}):
-              body = {
-                  "Status": response_status,
-                  "PhysicalResourceId": context.log_stream_name,
-                  "StackId": event["StackId"],
-                  "RequestId": event["RequestId"],
-                  "LogicalResourceId": event["LogicalResourceId"],
-              }
-              
-              print("Responding: {}".format(response_status))
-              
-              if reason:
-                  print(reason)
-                  body["Reason"] = reason
-              
-              if response_data:
-                  print(response_data)
-                  body["Data"] = response_data
-              
-              body = json.dumps(body).encode("utf-8")
-              
-              req = Request(event["ResponseURL"], data=body, headers={
-                  "Content-Length": len(body),
-                  "Content-Type": "",
-              })
-              req.get_method = lambda: "PUT"
-              
-              try:
-                  urlopen(req)
-                  return True
-              except HTTPError as e:
-                  print("Failed executing HTTP request: {}".format(e.code))
-                  return False
-              except URLError as e:
-                  print("Failed to reach the server: {}".format(e.reason))
-                  return False
 
           def delete_mount_targets(event, _):
               
@@ -458,7 +419,7 @@ Resources:
               answer={}
               if event.get("RequestType") == "Delete":
                   answer = delete_mount_targets(event, context)
-              return send_response(event, context, "SUCCESS", response_data=answer)
+              cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData=answer)
 
       Runtime: python3.7
       Handler: index.handler
