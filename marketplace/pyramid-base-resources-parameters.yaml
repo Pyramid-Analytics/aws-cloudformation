@@ -17,7 +17,10 @@ Metadata:
           - AllowSSHSecurityGroup
           - InitialUsername
           - InitialUserPassword
- 
+      - Label:
+          default: File System
+        Parameters:
+          - ExistingFileSystemId
     ParameterLabels:
       BaseStackName:
         default: Base Stack Name
@@ -33,6 +36,8 @@ Metadata:
         default: Initial Pyramid user name
       InitialUserPassword:
         default: Initial Pyramid User password
+      ExistingFileSystemId:
+        default: Existing File system Id
 Parameters:
   BaseStackName:
     Description: Base Stack Name
@@ -88,6 +93,14 @@ Parameters:
     MinLength: '8'
     NoEcho: 'True'
     Type: String
+  ExistingFileSystemId:
+    Description: >-
+      For reusing an existing file system for Pyramid combined with an existing repository database.
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|fs-[a-f0-9]{8}'
+    ConstraintDescription: >-
+      Optional. EFS ID like fs-9554b161.
 
 Rules:
   KeyPairsNotEmpty:
@@ -103,6 +116,11 @@ Conditions:
     - !Equals 
       - !Ref AllowSSHSecurityGroup
       - ''
+  CreateFileSystem: !Equals
+    - !Ref ExistingFileSystemId
+    - ''
+  ReuseExistingFileSystem: !Not 
+    - !Condition CreateFileSystem
 
 Resources:
 
@@ -278,6 +296,7 @@ Resources:
 
   SharedFileSystem:
     Type: 'AWS::EFS::FileSystem'
+    Condition: CreateFileSystem
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
@@ -302,6 +321,7 @@ Resources:
 
   SharedFileSystemKey:
     Type: 'AWS::KMS::Key'
+    Condition: CreateFileSystem
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
@@ -317,9 +337,136 @@ Resources:
               - 'kms:*'
             Resource: '*'
 
+  UpdateExistingFileSystemPolicyRole:
+    Type: 'AWS::IAM::Role'
+    Condition: ReuseExistingFileSystem
+    Properties:
+      ManagedPolicyArns:
+        - !Sub >-
+          arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: UpdateExistingFileSystemPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: UpdateExistingFileSystemPolicy
+                Effect: Allow
+                Action:
+                  - 'elasticfilesystem:PutFileSystemPolicy'
+                Resource:
+                  - !Sub >-
+                    arn:${AWS::Partition}:elasticfilesystem:${AWS::Region}:${AWS::AccountId}:file-system/${ExistingFileSystemId}
+
+  UpdateExistingFileSystemPolicyLambda:
+    Type: 'AWS::Lambda::Function'
+    Condition: ReuseExistingFileSystem
+    Properties:
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import cfnresponse
+          from botocore.exceptions import ClientError
+
+          def update_file_system_policy(event, _):
+              
+              efsId = event['ResourceProperties']['EFSId']
+              region = event['ResourceProperties']['Region']
+              accountId = event['ResourceProperties']['AccountId']
+              partition = event['ResourceProperties']['Partition']
+              role = event['ResourceProperties']['Role']
+              
+              client = boto3.client('efs')
+              
+              try:
+                  # FileSystemPolicy:
+                  #   Version: "2012-10-17"
+                  #   Statement:
+                  #     - Sid: Allow administration
+                  #       Effect: "Allow"
+                  #       Action:
+                  #         - "elasticfilesystem:Client*"
+                  #       Principal:
+                  #         AWS:
+                  #           - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root'
+                  #           - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${PyramidRole}'
+                  policy = {
+                      "Version": "2012-10-17",
+                      "Statement": [
+                          {
+                              "Sid": "allow-administration",
+                              "Effect": "Allow",
+                              "Principal": {
+                                  "AWS": [
+                                      "arn:" + partition + ":iam::" + accountId + ":root",
+                                      "arn:" + partition + ":iam::" + accountId + ":role/" + role,
+                                  ]
+                              },
+                              "Action": [
+                                  "elasticfilesystem:Client*"
+                              ]
+                          }
+                      ]
+                  }
+                  response = client.put_file_system_policy(
+                      FileSystemId=efsId,
+                      Policy=json.dumps(policy)
+                  )
+
+                  return {
+                      "Status" : True,
+                      "Message" : response
+                  }
+                  
+              except ClientError as e:
+                  print(e)
+                  return {
+                        "Status" : False,
+                        "Message" :  e.response['Error']['Message']
+                  }
+
+          def handler(event, context):
+              print(event)
+              answer={}
+              if event.get("RequestType") == "Delete":
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData=answer)
+              else:
+                  answer = update_file_system_policy(event, context)
+                  if answer["Status"] == True:
+                      responseStatus = cfnresponse.SUCCESS
+                  else:
+                      responseStatus = cfnresponse.FAILED
+                  cfnresponse.send(event, context, responseStatus, responseData=answer)
+
+
+      Runtime: python3.7
+      Handler: index.handler
+      Role: !GetAtt UpdateExistingFileSystemPolicyRole.Arn
+
+  UpdateExistingFileSystemPolicy:
+    Type: 'Custom::UpdateExistingFileSystemPolicyLambda'
+    Condition: ReuseExistingFileSystem
+    Properties:
+      ServiceToken: !GetAtt UpdateExistingFileSystemPolicyLambda.Arn
+      EFSId: !Ref ExistingFileSystemId
+      Region: !Ref 'AWS::Region'
+      AccountId: !Ref 'AWS::AccountId'
+      Partition: !Ref 'AWS::Partition'
+      Role: !Ref PyramidRole
+
+
   PyramidSharedFileSystemManagedPolicy:
     Type: 'AWS::IAM::ManagedPolicy'
-    DependsOn: SharedFileSystem
+    # DependsOn: SharedFileSystem
     Properties:
       PolicyDocument:
         Version: '2012-10-17'
@@ -330,8 +477,13 @@ Resources:
               - 'elasticfilesystem:DescribeMountTargets'
               - 'elasticfilesystem:CreateMountTarget'
             Resource:
-              - !Sub >-
-                arn:${AWS::Partition}:elasticfilesystem:${AWS::Region}:${AWS::AccountId}:file-system/${SharedFileSystem}
+              - !Join
+                - ''
+                - - !Sub 'arn:${AWS::Partition}:elasticfilesystem:${AWS::Region}:${AWS::AccountId}:file-system/'
+                  - !If
+                    - CreateFileSystem
+                    - !Ref SharedFileSystem
+                    - !Ref ExistingFileSystemId
       Roles:
         - !Ref PyramidRole
 
@@ -361,8 +513,15 @@ Resources:
                 Action:
                   - 'elasticfilesystem:DeleteMountTarget'
                 Resource:
-                  - !Sub >-
-                    arn:${AWS::Partition}:elasticfilesystem:${AWS::Region}:${AWS::AccountId}:file-system/${SharedFileSystem}
+                  # - !Sub >-
+                  #   arn:${AWS::Partition}:elasticfilesystem:${AWS::Region}:${AWS::AccountId}:file-system/${SharedFileSystem}
+                  - !Join
+                    - ''
+                    - - !Sub 'arn:${AWS::Partition}:elasticfilesystem:${AWS::Region}:${AWS::AccountId}:file-system/'
+                      - !If
+                        - CreateFileSystem
+                        - !Ref SharedFileSystem
+                        - !Ref ExistingFileSystemId
 
   DeleteMountTargetsLambda:
     Type: 'AWS::Lambda::Function'
@@ -429,7 +588,11 @@ Resources:
     Type: 'Custom::DeleteMountTargetsLambda'
     Properties:
       ServiceToken: !GetAtt DeleteMountTargetsLambda.Arn
-      EFSId: !Ref SharedFileSystem
+      EFSId: !If
+        - CreateFileSystem
+        - !Ref SharedFileSystem
+        - !Ref ExistingFileSystemId
+
       Region: !Ref 'AWS::Region'
 
   InitialUserPasswordSecret:
@@ -495,7 +658,10 @@ Resources:
     Properties:
       Name: !Sub '/Pyramid/${BaseStackName}/SharedFileSystem'
       Type: String
-      Value: !Ref SharedFileSystem
+      Value: !If
+        - CreateFileSystem
+        - !Ref SharedFileSystem
+        - !Ref ExistingFileSystemId
       Description: EFS volume shared across Pyramid instances
       Tags:
         StackName: !Sub '${BaseStackName}'
@@ -563,7 +729,10 @@ Outputs:
     Description: IAM Instance Profile for instances launched from this stack
     
   SharedFileSystem:
-    Value: !Ref SharedFileSystem
+    Value: !If
+      - CreateFileSystem
+      - !Ref SharedFileSystem
+      - !Ref ExistingFileSystemId
     Description: EFS file system ID for the shared file system across the deployment
   InitialUsername:
     Value: !Ref InitialUsername

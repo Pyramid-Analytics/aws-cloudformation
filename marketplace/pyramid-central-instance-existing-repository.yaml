@@ -20,7 +20,7 @@ Metadata:
           - InitialUsername
           - InitialUserPassword
       - Label:
-          default: Existing Repository Database Service
+          default: Existing Repository Database Service and File system
         Parameters:
           - RDSDeploymentType
           - RDSAddress
@@ -30,11 +30,12 @@ Metadata:
           - RDSName
           - RDSSecurityGroup
       - Label:
-          default: Repository initialization
+          default: Repository and file system initialization
         Parameters:
           - BackupS3Bucket
           - BackupS3Folder
           - InitializeRepository
+          - ExistingFileSystemId
     ParameterLabels:
       KeyPairName:
         default: Key pair name
@@ -64,6 +65,8 @@ Metadata:
         default: Repository database name
       RDSSecurityGroup:
         default: Security group for access to Repository database service
+      ExistingFileSystemId:
+        default: Existing File system Id if not initializing or restoring
       InitializeRepository:
         default: Initialize Repository database?
       InitialUsername:
@@ -201,6 +204,14 @@ Parameters:
     ConstraintDescription: >-
       Min 6 characters. Must begin with a letter and contain only alphanumeric
       characters and underscores.
+  ExistingFileSystemId:
+    Description: >-
+      For reusing an existing file system for Pyramid combined with an existing repository database.
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|fs-[a-f0-9]{8}'
+    ConstraintDescription: >-
+      Optional. EFS ID like fs-9554b161.
   InitializeRepository:
     Description: If not restoring from backup, initialize Pyramid Repository database name. false assumes database name exists
     Type: String
@@ -319,6 +330,10 @@ Resources:
         AllowSSHSecurityGroup: !Ref AllowSSHSecurityGroup
         InitialUsername: !Ref InitialUsername
         InitialUserPassword: !Ref InitialUserPassword
+        ExistingFileSystemId: !If
+          - DontInitializeRepository
+          - !Ref ExistingFileSystemId
+          - !Ref AWS::NoValue
 
   RepositoryDatabaseTypeSSM:
     Type: AWS::SSM::Parameter
