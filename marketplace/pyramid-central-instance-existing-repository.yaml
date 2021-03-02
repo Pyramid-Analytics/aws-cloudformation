@@ -263,14 +263,50 @@ Parameters:
     ConstraintDescription: >-
       Optional. Otherwise min 5 characters. First character must be a letter or number. Must contain only letters, digits, '/', '-', '+', '_', '=' or parentheses.
 Mappings:
+# 2020.15.046
   AWSAMIRegionMap:
     us-east-1:
-      # 2020.13.100
-      # '64': ami-029d57f27fac5962a
-      # 2020.14.035
-      #'64': ami-0bc27a356344f2352
-      # 2020.15.046
-      '64': ami-09659d5dd77b8f212
+      '64': ami-0332381ea93801fca
+    us-east-2:
+      '64': ami-07df01338608019b1
+    us-west-1:
+      '64': ami-0b3e1d2a19c485bbd
+    us-west-2:
+      '64': ami-0e8711a4b3c4abe92
+    ca-central-1:
+      '64': ami-05b3e380d116c03bf
+    eu-central-1:
+      '64': ami-07bc544bb33d18998
+    eu-west-1:
+      '64': ami-0dd69c8bc1d285c55
+    eu-west-2:
+      '64': ami-0266c63c8607f28f8
+    eu-west-3:
+      '64': ami-0f1e64f1e5590fa3c
+    eu-north-1:
+      '64': ami-0ea81e60fb6605bf6
+    eu-south-1:
+      '64': ami-058de9f7162d603c2
+    ap-southeast-1:
+      '64': ami-07e8d36c02edeeb9b
+    ap-southeast-2:
+      '64': ami-0524ec26cec47b7c4
+    ap-south-1:
+      '64': ami-0916bf531eea1220b
+    ap-northeast-1:
+      '64': ami-0ec5f0355dc068508
+    ap-northeast-2:
+      '64': ami-0f129e518db0364eb
+    sa-east-1:
+      '64': ami-09b0aeb91b3fe381a
+    us-gov-east-1:
+      '64': ami-02c0b88d2e8e490f3
+    us-gov-west-1:
+      '64': ami-0f1bea2a206905352
+    af-south-1:
+      '64': ami-0e1bc5bbc2228b8cd
+    me-south-1:
+      '64': ami-02141cc358e903028
 
 Rules:
   SubnetsNotEmpty:
