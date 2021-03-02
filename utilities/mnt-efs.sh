@@ -44,9 +44,9 @@ efsId=${efsId}
 efsRootDirectory=${efsRootDirectory:-/}
 mountPoint=${mountPoint:-/mnt/pyramid}
 ownership=${ownership:-pyramid:pyramid}
-subnet=
+# subnet=
 securityGroup=
-region=
+# region=
 baseStackName=
 
 wait_for_mount_target_availability() {
@@ -141,12 +141,13 @@ mount_efs() {
   # if the mountPoint directory does not exist
   if [ ! -d "${mountPoint}" ] ; then
     mkdir -p "${mountPoint}"
-    chown "${ownership}" "${mountPoint}"
   else
-    # fail if the mountPoint already exists
-    echo "mountPoint directory ${mountPoint} already exists. exiting..."
-    exit 1
+    # don't fail if the mountPoint already exists
+    echo "mountPoint directory ${mountPoint} already exists. continuing..."
+    # exit 1
   fi
+
+  chown "${ownership}" "${mountPoint}"
 
   # Mount the EFS volume using the AWS EFS helper
   # IAM is used for authentication to EFS
@@ -181,6 +182,14 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+TOKEN=`curl -sS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600"`
+
+mac=`curl -sS -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/mac`
+
+subnet=`curl -sS -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/network/interfaces/macs/$mac/subnet-id`
+
+region=`curl -sS -H "X-aws-ec2-metadata-token: $TOKEN" -s http://169.254.169.254/latest/dynamic/instance-identity/document | grep -oP '\"region\"[[:space:]]*:[[:space:]]*\"\K[^\"]+'`
+
 if [[ -z "${subnet}" ]] ; then
   echo "subnet not set"
   exit 1
@@ -190,6 +199,7 @@ if [[ -z "${region}" ]] ; then
   echo "region not set"
   exit 1
 fi
+
 
 if [[ -z "${efsId}" ]] ; then
   if [[ ! -z "${baseStackName}" ]] ; then

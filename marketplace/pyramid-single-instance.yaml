@@ -21,7 +21,7 @@ Metadata:
           - PyramidProcess
           - InstancePurpose
           - RunOnce
-          - BackupS3BucketAndFolder
+          - DependencyValue
       - Label:
           default: Repository Database configuration
         Parameters:
@@ -47,8 +47,8 @@ Metadata:
         default: Cluster instance type
       RunOnce:
         default: Run once and terminate
-      BackupS3BucketAndFolder:
-        default: S3 bucket and optional path to a Pyramid backup
+      DependencyValue:
+        default: Unused. Only for dependency management in calling CFTs
       InstallProxy:
         default: Install nginx as a proxy to the Pyramid web server
 Parameters:
@@ -58,6 +58,7 @@ Parameters:
     Type: String
     AllowedValues:
       - Everything
+      - EverythingExceptInMemoryDB
       - Router
       - WebServer
       - WebServerAndRouter
@@ -75,7 +76,6 @@ Parameters:
     Description: Base StackName this stack is a part of
     Type: String
     MinLength: '1'
-    MaxLength: '32'
     AllowedPattern: '[-_a-zA-Z0-9]*'
     ConstraintDescription: Required
   InstancePurpose:
@@ -103,15 +103,11 @@ Parameters:
       - true
       - false
     ConstraintDescription: Required
-  BackupS3BucketAndFolder:
+  DependencyValue:
     Description: >-
-      S3 path to a Pyramid backup
+      Unused. Only for dependency management in calling CFTs
     Type: String
-    MaxLength: '1000'
     Default: ''
-    AllowedPattern: '^$|(?=^.{5,1000}$)[a-zA-Z][-_a-zA-Z0-9/\=()]*$'
-    ConstraintDescription: >-
-      Optional. Otherwise min 5 characters. First character must be a letter. Must contain only letters, digits, '/', '-', '_', '=', '*' or parentheses.
   InstallProxy:
     Description: >-
       Install nginx as a proxy to the Pyramid web server.
@@ -262,10 +258,9 @@ Parameters:
     AllowedValues:
       - currentremote
       - newremote
-      - newlocal
+      - reuseremote
     Default: currentremote
-    MinLength: '1'
-    ConstraintDescription: Must contain newremote, currentremote or newlocal.
+    ConstraintDescription: Must contain newremote, currentremote or reuseremote.
 Conditions:
   TerminateInstance: !Equals
    - !Ref RunOnce
@@ -388,87 +383,33 @@ Resources:
 
         InstallPyramid:
           commands:
-
-# Single EFS volume now
-# /mnt/pyramid
-
-#   shared/
-  #   common file system
-  #   fs:/shared to /mnt/pyramid
-  #   create fs:/shared if it does not exist
-
-#   imdb/<id>
-#     individual imdata directories
-#     current list in ssm baseStack/stack/IMDBFileSystem = <id> vs list of imdb/<id>
-#     if list of imdb/<id> is longer than baseStack/stack/IMDBFileSystem
-#       use next imdb/<id> -> baseStack/stack/IMDBFileSystem
-#     else
-#       create new imdb/<id>
-#     fs:imdb/<id> to /mnt/pyramid-imdb
-
-#   repoBackup/$baseStackName-repository-$timestamp.dump
-#     backups
-#     ignore these in Pyramid instances
-            0a-clean-1:
-              command: rm -rf /root/.aws
-              ignoreErrors: 'false'
-            0b-checkClean:
-              command: !Join
-                - ''
-                - - 'ADDRESS=`aws ssm get-parameter --name "/Pyramid/'
-                  - !Ref BaseStackName
-                  - '/RepositoryDatabaseAddress" --region '
-                  - !Ref AWS::Region
-                  -  ' --output text | cut -f 7` && [[ ! -z "${ADDRESS}" ]]'
-              ignoreErrors: 'false'
-            1-execute-restore:
-              test: !Join
-                - ''
-                - - '[ -n "'
-                  - !Ref BackupS3BucketAndFolder
-                  - '" ]'
-              # restore-from-s3 \
-              #   Pyr-v8 \
-              #   pyr-v8-backup-s3bucket-17f7k5buabvbh/2020-11-11-08-50-14
-              #   subnet-01892aa0ff74872e0 \
-              #   us-east-1 
-              command: !Join
-                - ' '
-                - - '/usr/src/pyramid/restore-from-s3.sh'
-                  - !Ref BaseStackName
-                  - !Ref BackupS3BucketAndFolder
-                  - !Ref Subnet
-                  - !Sub '${AWS::Region}'
-                  - 'true'
-              ignoreErrors: 'false'
-            2-generate-unattended-install-settings:
+            1-generate-unattended-install-settings:
+              test: "ls /usr/src/pyramid/*.run"
               command: !Join
                 - ' '
                 - - '/usr/src/pyramid/unattended-install-settings.sh'
                   - !Ref BaseStackName
                   - !Ref RepositoryType
-                  - !Ref AWS::Region
                   - !Ref PyramidProcess
               ignoreErrors: 'false'
-            3-install:
+            2-install:
+              test: "ls /usr/src/pyramid/*.run"
               cwd: /usr/src/pyramid
               command: "for i in Pyramid*.run; do /usr/src/pyramid/$i --mode unattended --optionfile /usr/src/pyramid/pyramid-unattended-install.ini; done"
               ignoreErrors: 'false'
-            4-cleanup:
+            3-cleanup:
+              test: "ls /usr/src/pyramid/pyramid-unattended-install.ini"
               command: "rm /usr/src/pyramid/pyramid-unattended-install.ini && rm -f /tmp/pyr*.log && rm -f /tmp/bit*.log"
               ignoreErrors: 'false'
-            5-mount-shared-fs:
+            4-mount-shared-fs:
               command: !Join
                 - ' '
-                - - '/usr/src/pyramid/mnt-efs.sh --mountPoint /mnt/pyramid --subnet'
-                  -  !Ref Subnet
+                - - '/usr/src/pyramid/mnt-efs.sh --mountPoint /mnt/pyramid'
                   - '--baseStackName'
                   - !Ref BaseStackName
                   - '--efsRootDirectory /shared'
-                  - '--region'
-                  - !Ref AWS::Region
               ignoreErrors: 'false'
-            6-mount-IMDB-fs:
+            5-mount-IMDB-fs:
               test: !Join
                 - ''
                 - - '[[ ''Everything,InMemoryDB'' == *"'
@@ -482,10 +423,6 @@ Resources:
                   - !Ref BaseStackName
                   - '--currentStackName'
                   - !Ref 'AWS::StackName'
-                  - '--subnet'
-                  - !Ref Subnet
-                  - '--region'
-                  - !Ref 'AWS::Region'
                   - '--initialize true'
               ignoreErrors: 'false'
 
@@ -495,12 +432,14 @@ Resources:
               content: |
                 location / {
                   proxy_pass http://127.0.0.1:8181;
+                  client_max_body_size 50M;
                 }
                 location /events {
                   proxy_pass http://127.0.0.1:8181/events;
                   proxy_http_version 1.1;
                   proxy_set_header Upgrade $http_upgrade;
                   proxy_set_header Connection "upgrade";
+                  client_max_body_size 50M;
                 }
               mode: '000755'
               owner: root
@@ -556,14 +495,17 @@ Resources:
               MIME-Version: 1.0
               Content-Transfer-Encoding: 7bit
               Content-Disposition: attachment; filename="cloud-config.txt"
+
               #cloud-config
               cloud_final_modules:
-              [scripts-user, always]
+              - [scripts-user, always]
+
               --//
               Content-Type: text/x-shellscript; charset="us-ascii"
               MIME-Version: 1.0
               Content-Transfer-Encoding: 7bit
               Content-Disposition: attachment; filename="userdata.txt"
+
               #!/bin/bash -xe
 
               # run cfn-init
@@ -590,7 +532,7 @@ Resources:
             - ''' = ''true'' ] ; then /sbin/halt -p; fi'
             - |+
 
-            - ''
+            - '--//'
             - |+
 
       Tags:
@@ -614,3 +556,7 @@ Outputs:
     Value: !GetAtt PyramidInstance.PrivateDnsName
     Description: Instance Private DNS name
 
+
+  DependencyValue:
+    Description: "An output to make a dependency"
+    Value: !Ref DependencyValue

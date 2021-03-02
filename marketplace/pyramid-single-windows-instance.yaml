@@ -1,0 +1,542 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  This workload template deploys a single Windows instance of the Windows Connector (DNC).
+  Joins a Windows domain for access into Microsoft Analysis Services.
+  A default Windows AMI is launched and a Pyramid installer is downloaded.
+  You will be billed for the AWS resources used if you create a stack from this template. 
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+      - Label:
+          default: Pyramid
+        Parameters:
+          - BaseStackName
+          - WindowsPyramidInstallerURL
+          - InstancePurpose
+      - Label:
+          default: EC2
+        Parameters:
+          - LatestWindowsAmiId
+          - InstanceType
+          - RunOnce
+      - Label:
+          default: Network
+        Parameters:
+          - Subnet
+          - DomainControllerIp
+          - DomainDNSName
+          - DomainNetBiosName
+          - DomainAdminUser
+          - AdminPassword
+    ParameterLabels:
+      BaseStackName:
+        default: Base Stack this stack is a part of
+      InstancePurpose:
+        default: Note on this instance's purpose
+      LatestWindowsAmiId:
+        default: Latest Windows 2019 AMI
+      Subnet:
+        default: Subnet to run the instance in
+      InstanceType:
+        default: Instance type
+      RunOnce:
+        default: Run once and terminate
+      DomainControllerIp:
+        default: IP address of domain controller
+      DomainDNSName:
+        default: Fully qualified domain name (FQDN) of the forest root domain
+      DomainNetBiosName:
+        default: Netbios name for the domain
+      DomainAdminUser:
+        default: Domain Administrator user name
+      AdminPassword:
+        default: Domain Administrator account password
+Parameters:
+  LatestWindowsAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-windows-latest/Windows_Server-2019-English-Core-Base'
+    Description: SSM Parameter for Latest Windows 2019 Datacenter AMI
+  WindowsPyramidInstallerURL:
+    Description: Download of a Pyramid Windows installer
+    Type: String
+    MinLength: '1'
+  BaseStackName:
+    Description: Base StackName this stack is a part of
+    Type: String
+    MinLength: '1'
+    AllowedPattern: '[-_a-zA-Z0-9]*'
+    ConstraintDescription: Required
+  InstancePurpose:
+    Description: Free text note indicating instance's purpose.
+    Type: String
+    Default: WindowsConnector
+    MinLength: '1'
+    AllowedPattern: '[-_a-zA-Z0-9]*'
+    ConstraintDescription: Required
+  RunOnce:
+    Description: >-
+      Run the instance start scripts and terminate.
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false
+    ConstraintDescription: Required
+  Subnet:
+    Description: >-
+      Deployment subnet.
+    Type: 'AWS::EC2::Subnet::Id'
+    ConstraintDescription: Required
+  InstanceType:
+    Description: >-
+      Amazon EC2 instance type for the Pyramid instances.
+      Has to be available for the deployment region.
+    Type: String
+    AllowedValues:
+      - m5.2xlarge
+      - m5.4xlarge
+      - m5.8xlarge
+      - m5.12xlarge
+      - m5a.2xlarge
+      - m5a.4xlarge
+      - m5a.8xlarge
+      - m5a.12xlarge
+      - m5n.2xlarge
+      - m5n.4xlarge
+      - m5n.8xlarge
+      - m5n.12xlarge
+      - c5.2xlarge
+      - c5.4xlarge
+      # - c5.8xlarge
+      - c5.12xlarge
+      - c5a.2xlarge
+      - c5a.4xlarge
+      - c5a.8xlarge
+      - c5a.12xlarge
+      - c5n.2xlarge
+      - c5n.4xlarge
+      # - c5n.8xlarge
+      # - c5n.12xlarge
+    Default: c5.2xlarge
+    ConstraintDescription: Must contain valid instance type.
+
+  AdminPassword:
+    Description: Password
+    Type: String
+    MinLength: '8'
+    NoEcho: true
+    ConstraintDescription: Min 8 characters
+    
+  DomainControllerIp:
+    Description: IP address
+    Type: String
+    MinLength: '8'
+    ConstraintDescription: Min 8 characters
+
+  DomainDNSName:
+    Description: DNS Name
+    Type: String
+    MinLength: '5'
+    ConstraintDescription: Min 5 characters
+
+  DomainNetBiosName:
+    Description: Domain NetBIOS Name
+    Type: String
+    MinLength: '5'
+    ConstraintDescription: Min 5 characters
+  
+  DomainAdminUser:
+    Description: Domain Admin User name. Separate from the local Administrator account
+    Type: String
+    MinLength: '5'
+    ConstraintDescription: Min 5 characters
+
+Conditions:
+  TerminateInstance: !Equals
+   - !Ref RunOnce
+   - 'true'
+
+Resources:
+  InstanceWaitHandle:
+    Type: 'AWS::CloudFormation::WaitConditionHandle'
+  InstanceWaitCondition:
+    Type: 'AWS::CloudFormation::WaitCondition'
+    Properties:
+      Handle: !Ref InstanceWaitHandle
+      # 15 mins
+      Timeout: '900'
+      Count: 1
+
+  PyramidInstance:
+    Type: 'AWS::EC2::Instance'
+    Metadata:
+      'AWS::CloudFormation::Init':
+        configSets:
+          default:
+            - 01_setupCfnHupAndCloudWatchAgent
+            - 02_config-amazon-cloudwatch-agent
+            - 03_restart_amazon-cloudwatch-agent
+            - JoinWindowsDomain
+            - 02_config-amazon-cloudwatch-agent
+            - 03_restart_amazon-cloudwatch-agent
+            - InstallPyramid
+          UpdateEnvironment:
+            - 02_config-amazon-cloudwatch-agent
+            - 03_restart_amazon-cloudwatch-agent
+
+        # Cfn-hup setting, it is to monitor the change of metadata.
+        # When there is change in the contents of json file in the metadata section, cfn-hup will call cfn-init to restart the AmazonCloudWatchAgent.
+        01_setupCfnHupAndCloudWatchAgent:
+          files:
+            c:\\cfn\\cfn-hup.conf:
+              content: !Sub |
+                [main]
+                stack=${AWS::StackId}
+                region=${AWS::Region}
+
+            c:\\cfn\\hooks.d\\cfn-auto-reloader.conf:
+              content: !Join 
+                - ''
+                - - '[cfn-auto-reloader-hook]'
+                  - |+
+
+                  - triggers=post.update
+                  - |+
+
+                  - path=Resources.PyramidInstance.Metadata.AWS::CloudFormation::Init
+                  - |+
+
+                  - 'action=cfn-init.exe -v --stack='
+                  - !Ref 'AWS::StackId'
+                  - ' --resource=PyramidInstance'
+                  - ' --configsets=UpdateEnvironment'
+                  - ' --region='
+                  - !Ref 'AWS::Region'
+                  - |+
+
+            C:\\PyramidInstall\\AmazonCloudWatchAgent.msi:
+              source: https://s3.amazonaws.com/amazoncloudwatch-agent/windows/amd64/latest/amazon-cloudwatch-agent.msi
+
+          commands:
+            1-install-cloudwatch:
+              command: C:\\PyramidInstall\\AmazonCloudWatchAgent.msi
+              waitAfterCompletion: '0'
+
+          services:
+            windows:
+              cfn-hup:
+                enabled: 'true'
+                ensureRunning: 'true'
+                files: 
+                  - c:\\cfn\\cfn-hup.conf
+                  - c:\\cfn\\hooks.d\\cfn-auto-reloader.conf
+
+        # Definition of json configuration of AmazonCloudWatchAgent
+        02_config-amazon-cloudwatch-agent:
+          files:
+            "C:\\ProgramData\\Amazon\\AmazonCloudWatchAgent\\amazon-cloudwatch-agent.json":
+              content: !Sub |
+                {
+                  "logs": {
+                    "logs_collected": {
+                      "files": {
+                        "collect_list": [
+                          {
+                            "file_path": "C:\\cfn\\log\\cfn-init.log",
+                            "log_group_name": "/pyramid/${BaseStackName}",
+                            "log_stream_name": "{instance_id}-${InstancePurpose}/cf-init",
+                            "timestamp_format": "%Y-%m-%d %H:%M:%S,%f"
+                          },
+                           {
+                            "file_path": "INSTALL_LOG_PATH\\*.log",
+                            "log_group_name": "/pyramid/${BaseStackName}",
+                            "log_stream_name": "{instance_id}-${InstancePurpose}/installers",
+                            "timestamp_format": "%Y-%m-%d %H:%M:%S,%f"
+                          },
+                          {
+                            "file_path": "C:\\Program Files\\Pyramid\\log\\*.log",
+                            "log_group_name": "/pyramid/${BaseStackName}",
+                            "log_stream_name": "{instance_id}-${InstancePurpose}/pyramid-logs",
+                            "timestamp_format": "%Y-%m-%d %H:%M:%S,%f"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+
+            # get logs file from temp directory
+            "C:\\PyramidInstall\\update-cloudwatch-config.ps1":
+              content: |
+                Set-StrictMode -Version Latest
+                $ErrorActionPreference = "Stop"
+
+                $CloudWatchConfPath = 'C:\ProgramData\Amazon\AmazonCloudWatchAgent\amazon-cloudwatch-agent.json'
+                $formattedTempPath = "$env:TEMP".replace('\', '\\')
+                (Get-Content $CloudWatchConfPath).replace('INSTALL_LOG_PATH', $formattedTempPath) | Set-Content $CloudWatchConfPath
+                Write-Host "amazon-cloudwatch-agent.json: $formattedTempPath"
+
+          commands:
+            update_cloudwatch_config:
+              command: powershell -File "C:\\PyramidInstall\\update-cloudwatch-config.ps1"
+              waitAfterCompletion: '0'
+
+        03_restart_amazon-cloudwatch-agent:
+          commands:
+            01_stop_service:
+              command: powershell -Command "C:\\'Program Files'\\Amazon\\AmazonCloudWatchAgent\\amazon-cloudwatch-agent-ctl.ps1 -a stop"
+              waitAfterCompletion: '0'
+            02_start_service:
+              command: powershell -Command "C:\\'Program Files'\\Amazon\\AmazonCloudWatchAgent\\amazon-cloudwatch-agent-ctl.ps1 -a fetch-config -m ec2 -c file:C:\\ProgramData\\Amazon\\AmazonCloudWatchAgent\\amazon-cloudwatch-agent.json -s"
+              waitAfterCompletion: '0'
+
+
+
+        JoinWindowsDomain:
+          files:
+
+            "C:\\PyramidInstall\\join-domain.ps1":
+              content: |
+                param ($AdminPassword, $DomainControllerIp, $DomainDNSName, $DomainNetBiosName, $DomainAdminUser)
+
+                Set-StrictMode -Version Latest
+                $ErrorActionPreference = "Stop"
+
+                ([ADSI]"WinNT://$env:computername/Administrator").SetPassword('$AdminPassword')
+
+                $computer = Get-WmiObject -Class Win32_ComputerSystem
+
+                Write-Host "computer=$computer"
+
+                if ($computer.domain -eq 'WORKGROUP') {
+                  Write-Host "Joining domain"
+                  $adapter = Get-NetAdapter -Name 'Ethernet*'
+                  Set-DNSClientServerAddress -InterfaceAlias $adapter.Name -ServerAddresses ('$DomainControllerIp')
+
+                  $password = "$AdminPassword" | ConvertTo-SecureString -asPlainText -Force
+                  $Administrator = "$DomainNetBiosName\$DomainAdminUser"
+                  $credential = New-Object System.Management.Automation.PSCredential($Administrator,$password)
+
+                  Write-Host "Domain Administrator=<$Administrator>"
+                  Add-Computer -DomainName $DomainDNSName -Credential $credential -restart
+                }
+
+          commands:
+            join_domain:
+              command: !Join
+                - ''
+                - - 'powershell -File C:\\PyramidInstall\\join-domain.ps1 "'
+                  - !Ref AdminPassword
+                  - '" '
+                  - !Ref DomainControllerIp
+                  - ' '
+                  - !Ref DomainDNSName
+                  - ' '
+                  - !Ref DomainNetBiosName
+                  - ' '
+                  - !Ref DomainAdminUser
+              ignoreErrors: 'false'
+              waitAfterCompletion: 'forever'
+
+        InstallPyramid:
+          files:
+            "C:\\PyramidInstall\\PyramidWindowsInstaller.exe":
+              source: !Ref WindowsPyramidInstallerURL
+
+            "C:\\PyramidInstall\\unattended-install-settings.ps1":
+              content: |
+                param ($baseStackName)
+
+                Set-StrictMode -Version Latest
+                $ErrorActionPreference = "Stop"
+
+                $processes="WindowsConnector"
+
+                Write-Host "baseStackName=$baseStackName"
+                Write-Host "processes=<$processes>"
+
+                # All processes here, but we are only doing WindowsConnector for this Pyramid Windows deployment
+                
+                $ProcessesToExclude = @{}
+                $ProcessesToExclude["Router"] = "winws,winrte,winte,winimdb,winai,windesktop,windnc"
+                $ProcessesToExclude["WebServer"] = "winrte,winte,winrtr,winimdb,winai,windesktop,windnc"
+                $ProcessesToExclude["WebServerAndRouter"] = "winrte,winte,winimdb,winai,windesktop,windnc"
+                $ProcessesToExclude["RuntimeEngine"] = "winws,winte,winrtr,winimdb,winai,windesktop,windnc"
+                $ProcessesToExclude["TaskEngine"] = "winws,winrte,winrtr,winimdb,winai,windesktop,windnc"
+                $ProcessesToExclude["RuntimeEngineAndTaskEngine"] = "winws,winrtr,winimdb,winai,windesktop,windnc"
+                $ProcessesToExclude["RuntimeEngineAndAI"] = "winws,winte,winrtr,winimdb,windesktop,windnc"
+                $ProcessesToExclude["TaskEngineAndAI"] = "winws,winrte,winrtr,winimdb,windesktop,windnc"
+                $ProcessesToExclude["RuntimeAndTaskEngineAndAI"] = "winws,winrtr,winimdb,windesktop,windnc"
+                $ProcessesToExclude["AIServer"] = "winws,winrte,winte,winrtr,winimdb,windeskto,windnc"
+                $ProcessesToExclude["InMemoryDB"] = "winws,winrte,winte,winrtr,winai,windesktop,windnc"
+                $ProcessesToExclude["Nothing"] = "winws,winrte,winte,winrtr,winimdb,winai,windesktop,windnc"
+                $ProcessesToExclude["EverythingExceptInMemoryDB"] = "winimdb,windesktop"
+                $ProcessesToExclude["WindowsConnector"] = "winws,winrte,winte,winrtr,winimdb,winai,windesktop"
+                $ProcessesToExclude["Everything"] = ""
+
+                try {
+                  $rdsType = ( Get-SSMParameter -Name /Pyramid/$baseStackName/RepositoryDatabaseType ).Value
+                }
+                catch {
+                  if  ( $rdsType -eq "" ) {
+                    $rdsType = "PostgreSQL"
+                  }
+                }
+
+
+                $rdsAddress = ( Get-SSMParameter -Name /Pyramid/$baseStackName/RepositoryDatabaseAddress ).Value
+                $rdsPort = ( Get-SSMParameter -Name /Pyramid/$baseStackName/RepositoryDatabasePort ).Value
+                $rdsName = ( Get-SSMParameter -Name /Pyramid/$baseStackName/RepositoryDatabaseName ).Value
+                $rdsUsername = ( Get-SSMParameter -Name /Pyramid/$baseStackName/RepositoryDatabaseUsername ).Value
+
+                $rdsPassword = ( Get-SECSecretValue -SecretId /Pyramid/$baseStackName/RepositoryDatabasePassword ).SecretString
+
+                $initialUsername = ( Get-SSMParameter -Name /Pyramid/$baseStackName/InitialUsername ).Value
+
+                $initialUserPassword = ( Get-SECSecretValue -SecretId /Pyramid/$baseStackName/InitialUserPassword ).SecretString
+
+                switch ( $rdsType )
+                {
+                    "PostgreSQL" {
+                      $databasePrefix = "postgreSql"
+                      $databaseLocation = "pgLocation"
+                      $databaseType = "0"
+                    }
+                    "MicrosoftSQLServer" {
+                      $databasePrefix = "mssql"
+                      $databaseLocation = "msLocation"
+                      $databaseType = "1"
+                    }
+                    default {
+                      Write-Host "invalid database type <$rdsType>"
+                      exit 1
+                    }
+                }
+
+                $disableComponentsProperty=""
+                if  ( -not ( "$processes" -eq "Everything") ) {
+                  $disableComponentsProperty="disable-components=$($ProcessesToExclude.$processes)"
+                }
+
+                $preamble = @"
+                install-location=$env:ProgramFiles\Pyramid
+                data-location=$env:ProgramFiles\Pyramid\repository
+
+                $disableComponentsProperty
+
+                installation-type=1
+                selectCurrentRepository=$databaseType
+                repositoryChoice=currentremote
+                $databaseLocation=0
+                initUserName=$initialUsername
+                initUserPassword=$initialUserPassword
+                "@
+
+                $iniFile = "C:\PyramidInstall\pyramid-unattended-install.ini"
+                Set-Content -Path $iniFile -Value $preamble
+
+                Add-Content -Path $iniFile -Value $("{0}Host={1}" -f $databasePrefix, $rdsAddress)
+                Add-Content -Path $iniFile -Value $("{0}Port={1}" -f $databasePrefix, $rdsPort)
+                Add-Content -Path $iniFile -Value $("{0}Db={1}" -f $databasePrefix, $rdsName)
+                Add-Content -Path $iniFile -Value $("{0}Username={1}" -f $databasePrefix, $rdsUsername)
+                Add-Content -Path $iniFile -Value $("{0}UserPassword={1}" -f $databasePrefix, $rdsPassword)
+
+                Write-Host "finished pyramid-unattended-install.ini"
+
+            "C:\\PyramidInstall\\post-install.ps1":
+              content: |
+                Set-StrictMode -Version Latest
+                $ErrorActionPreference = "Stop"
+
+                Get-ChildItem "$env:TEMP" | Where{$_.Name -Match "pyramid*"} | Remove-Item
+                Get-ChildItem "$env:TEMP" | Where{$_.Name -Match "installbuilder*"} | Remove-Item
+
+                Remove-Item 'C:\\PyramidInstall\\pyramid-unattended-install.ini'
+
+                Write-Host "removed logs and ini"
+
+                $PyramidConfPath = 'C:\Program Files\Pyramid\config.ini'
+                (Get-Content $PyramidConfPath).replace('mem=0', 'mem=300') | Set-Content $PyramidConfPath
+                Write-Host "updated config.ini mem=0"
+
+                Restart-Service PyramidDNC
+                Restart-Service PyramidFS
+                Restart-Service PyramidAgent
+                Write-Host "restarted services"
+                
+
+          commands:
+            0-disable-windows-defender-firewall:
+              command: netsh advfirewall set allprofiles state off
+              waitAfterCompletion: '0'
+
+            1-generate-unattended-install-settings:
+              command: !Join
+                - ' '
+                - - 'powershell -File c:\\PyramidInstall\\unattended-install-settings.ps1'
+                  - !Ref BaseStackName
+              ignoreErrors: 'false'
+              waitAfterCompletion: '0'
+              
+            2-install:
+              command: "c:\\PyramidInstall\\PyramidWindowsInstaller.exe --mode unattended --optionfile c:\\PyramidInstall\\pyramid-unattended-install.ini"
+              ignoreErrors: 'false'
+              waitAfterCompletion: '0'
+
+            3-cleanup:
+              command: "powershell -File c:\\PyramidInstall\\post-install.ps1"
+              ignoreErrors: 'false'
+              waitAfterCompletion: '0'
+
+            4-signal:
+              command: !Join
+                - ''
+                - - 'cfn-signal.exe -e %ERRORLEVEL% '
+                  - !Base64
+                    Ref: InstanceWaitHandle
+              waitAfterCompletion: '0'
+
+    Properties:
+      ImageId: !Ref LatestWindowsAmiId
+      KeyName: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/KeyPairName:1}}'
+      IamInstanceProfile: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/PyramidInstanceProfile:1}}'
+      InstanceType: !Ref InstanceType
+      SecurityGroupIds:
+        - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/PyramidProcessesSecurityGroup:1}}'
+      SubnetId: !Ref Subnet
+      InstanceInitiatedShutdownBehavior: !If
+        - TerminateInstance
+        - terminate
+        - stop
+      BlockDeviceMappings:
+        - DeviceName: "/dev/sda1"
+          Ebs: 
+            VolumeSize: 40
+      UserData:
+        Fn::Base64:
+          !Join 
+            - ''
+            - - <script>
+              - |+
+
+              - 'cfn-init.exe -v --stack='
+              - !Ref 'AWS::StackId'
+              - ' --resource=PyramidInstance'
+              - ' --configsets=default'
+              - ' --region='
+              - !Ref 'AWS::Region'
+              - |+
+
+              - </script>
+              - |+
+
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}'
+        - Key: Vendor
+          Value: Pyramid
+        - Key: StackName
+          Value: !Sub '${BaseStackName}'
+        - Key: Contents
+          Value: !Sub '${InstancePurpose}'
+
