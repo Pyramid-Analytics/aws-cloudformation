@@ -436,12 +436,14 @@ Resources:
               content: |
                 location / {
                   proxy_pass http://127.0.0.1:8181;
+                  client_max_body_size 50M;
                 }
                 location /events {
                   proxy_pass http://127.0.0.1:8181/events;
                   proxy_http_version 1.1;
                   proxy_set_header Upgrade $http_upgrade;
                   proxy_set_header Connection "upgrade";
+                  client_max_body_size 50M;
                 }
               mode: '000755'
               owner: root
