@@ -257,9 +257,6 @@ Conditions:
     - !Equals
       - !Ref AssignPublicIP
       - 'true'
-  # LocalFileSystem: !Equals
-  #   - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/SharedFileSystem:1}}'
-  #   - 'Local'
 
 Resources:
   LaunchInstance:
@@ -277,17 +274,6 @@ Resources:
         InstanceType: !Ref InstanceType
 
         Subnet: !Ref Subnet
-        # WorkloadSecurityGroups: !Join
-        #   - ','
-        #   - - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/PyramidProcessesSecurityGroup:1}}'
-        #     - !If
-        #       - WebAccess
-        #       - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/WebAccessSecurityGroup:1}}'
-        #       - !Ref 'AWS::NoValue'
-        # InstallProxy: !If
-        #   - WebAccess
-        #   - true
-        #   - false
         AssignPublicIP: !If
           - WebAccess
           - !Ref AssignPublicIP

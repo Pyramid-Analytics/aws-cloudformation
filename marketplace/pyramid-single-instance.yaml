@@ -11,9 +11,7 @@ Metadata:
           - AMIID
           - Subnet
           - InstanceType
-          # - WorkloadSecurityGroups
           - AssignPublicIP
-          # - InstallProxy
       - Label:
           default: Pyramid instance configuration
         Parameters:
@@ -35,8 +33,6 @@ Metadata:
         default: Pyramid processes to run
       InstancePurpose:
         default: Note on this instance's purpose
-      # WorkloadSecurityGroups:
-      #   default: Security Groups for instances
       AMIID:
         default: Pyramid AMI Id
       Subnet:
@@ -95,11 +91,6 @@ Parameters:
     Description: AMI ID of the Pyramid AWS Workplace listing. Usually passed in from another template.
     Type: AWS::EC2::Image::Id
     ConstraintDescription: Required
-  # WorkloadSecurityGroups:
-  #   Description: >-
-  #     Security groups shared between Pyramid processes
-  #   Type: CommaDelimitedList
-  #   ConstraintDescription: Required
   RunOnce:
     Description: >-
       Run the instance start scripts and terminate.
@@ -300,28 +291,11 @@ Conditions:
       - !Ref PyramidProcess
       - 'WebServer'
 
-  # InstallNginx: !If
-  #   - WebAccess
-  #   - true
-  #   - false
-
   AssignPublicIPCondition: !And
     - !Condition WebAccess
     - !Equals
       - !Ref AssignPublicIP
       - 'true'
-
-  # AssignPublicIP: !If
-  #   - WebAccess
-  #   - !Ref AssignPublicIP
-  #   - false
-
-  # InstallNginx: !Equals
-  #   - !Ref InstallProxy
-  #   - 'true'
-  # AssignPublicIPCondition: !Equals
-  #   - !Ref AssignPublicIP
-  #   - 'true'
 
   LocalFileSystem: !Equals
     - !Ref SharedFileSystemParameterValue
@@ -456,7 +430,6 @@ Resources:
               test: "ls /usr/src/pyramid/pyramid-unattended-install.ini"
               command: "rm /usr/src/pyramid/pyramid-unattended-install.ini && rm -f /tmp/pyr*.log && rm -f /tmp/bit*.log"
               ignoreErrors: 'false'
-            #  test 'EFS' = 'Local' && echo match || echo no match
             4-mount-shared-fs:
               test: !Join
                 - ''
@@ -471,7 +444,6 @@ Resources:
                   - '--efsRootDirectory /shared'
               ignoreErrors: 'false'
             5-mount-IMDB-fs:
-              # [ 'EFS' = 'EFS' ] && [[ 'Every,Nothing' == *Edvery* ]]  && echo match || echo no match
               test: !Join
                 - ''
                 - - '[[ ''Everything,InMemoryDB'' == *"'
@@ -533,15 +505,6 @@ Resources:
             - LocalFileSystem
             - !Ref 'AWS::NoValue'
             - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/MountTargetSecurityGroup:1}}'
-
-        # - !Ref WorkloadSecurityGroups
-        # WorkloadSecurityGroups: !Join
-        #   - ','
-        #   - - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/PyramidProcessesSecurityGroup:1}}'
-        #     - !If
-        #       - WebAccess
-        #       - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/WebAccessSecurityGroup:1}}'
-        #       - !Ref 'AWS::NoValue'
       SubnetId: !If
         - AssignPublicIPCondition
         - !Ref 'AWS::NoValue'
@@ -562,7 +525,6 @@ Resources:
             AssociatePublicIpAddress: true
             DeleteOnTermination: true
             DeviceIndex: '0'
-            # !Ref WorkloadSecurityGroups
             GroupSet: 
               - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/PyramidProcessesSecurityGroup:1}}'
               - !If

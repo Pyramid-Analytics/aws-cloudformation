@@ -186,8 +186,6 @@ Conditions:
       - !Equals
         - !Ref ExistingFileSystemId
         - ''
-  # ReuseExistingFileSystem: !Not 
-  #   - !Condition CreateFileSystem
 
 Resources:
 
@@ -535,7 +533,6 @@ Resources:
   PyramidSharedFileSystemManagedPolicy:
     Type: 'AWS::IAM::ManagedPolicy'
     Condition: EFSFileSystem
-    # DependsOn: SharedFileSystem
     Properties:
       PolicyDocument:
         Version: '2012-10-17'
@@ -583,8 +580,6 @@ Resources:
                 Action:
                   - 'elasticfilesystem:DeleteMountTarget'
                 Resource:
-                  # - !Sub >-
-                  #   arn:${AWS::Partition}:elasticfilesystem:${AWS::Region}:${AWS::AccountId}:file-system/${SharedFileSystem}
                   - !Join
                     - ''
                     - - !Sub 'arn:${AWS::Partition}:elasticfilesystem:${AWS::Region}:${AWS::AccountId}:file-system/'
@@ -821,10 +816,6 @@ Outputs:
         - !Ref SharedFileSystem
         - !Ref ExistingFileSystemId
       - 'Local'
-    # Value: !If
-    #   - CreateFileSystem
-    #   - !Ref SharedFileSystem
-    #   - !Ref ExistingFileSystemId
     Description: EFS file system ID for the shared file system across the deployment or Local
   InitialUsername:
     Value: !Ref InitialUsername

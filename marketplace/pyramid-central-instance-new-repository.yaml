@@ -342,9 +342,6 @@ Conditions:
     - !Equals 
       - !Ref BackupS3Bucket
       - ''
-  # EFSFileSystem: !Equals
-  #   - !Ref FileSystemType
-  #   - 'EFS'
 
 Resources:
 
@@ -531,17 +528,8 @@ Resources:
         PyramidProcess: Everything
         InstancePurpose: CentralInstance
         InstanceType: !Ref InstanceType
-        # WorkloadSecurityGroups: !Join 
-        #   - ','
-        #   - - !GetAtt BaseResourcesParameters.Outputs.WebAccessSecurityGroup
-        #     - !GetAtt BaseResourcesParameters.Outputs.PyramidProcessesSecurityGroup
-        #     # - !If
-        #     #   - EFSFileSystem
-        #     #   - !GetAtt BaseResourcesParameters.Outputs.MountTargetSecurityGroup
-        #     #   - !Ref 'AWS::NoValue'
         Subnet: !Ref Subnet
         AssignPublicIP: !Ref AssignPublicIP
-        # InstallProxy: true
         RepositoryType: !If
           - RestoreFromBackup
           - reuseremote

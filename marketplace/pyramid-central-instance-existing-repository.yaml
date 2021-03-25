@@ -529,17 +529,8 @@ Resources:
         PyramidProcess: Everything
         InstancePurpose: CentralInstance
         InstanceType: !Ref InstanceType
-        # WorkloadSecurityGroups: !Join 
-        #   - ','
-        #   - - !GetAtt BaseResourcesParameters.Outputs.WebAccessSecurityGroup
-        #     - !GetAtt BaseResourcesParameters.Outputs.PyramidProcessesSecurityGroup
-        #     - !If
-        #       - EFSFileSystem
-        #       - !GetAtt BaseResourcesParameters.Outputs.MountTargetSecurityGroup
-        #       - !Ref 'AWS::NoValue'
         Subnet: !Ref Subnet
         AssignPublicIP: !Ref AssignPublicIP
-        # InstallProxy: true
         RepositoryType: !If
           - DontInitializeRepository
           - reuseremote
