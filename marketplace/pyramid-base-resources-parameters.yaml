@@ -20,6 +20,7 @@ Metadata:
       - Label:
           default: File System
         Parameters:
+          - FileSystemType
           - ExistingFileSystemId
     ParameterLabels:
       BaseStackName:
@@ -36,6 +37,8 @@ Metadata:
         default: Initial Pyramid user name
       InitialUserPassword:
         default: Initial Pyramid User password
+      FileSystemType:
+        default: Local file system or EFS for shared files and IMDB
       ExistingFileSystemId:
         default: Existing File system Id
 Parameters:
@@ -53,19 +56,6 @@ Parameters:
     Description: ID of your existing VPC for deployment.
     Type: 'AWS::EC2::VPC::Id'
     ConstraintDescription: Required
-  Subnet:
-    Description: Subnet for instance. Accessible by HTTP/S from browsers.
-    Type: 'AWS::EC2::Subnet::Id'
-  VPCCIDR:
-    AllowedPattern: >-
-      ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/([0-9]|[1-2][0-9]|3[0-2]))$
-    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/x
-    Description: >-
-      Allowed CIDR block for HTTP and HTTPS traffic. Please set CIDR to
-      x.x.x.x/32 to allow one specific IP address access, 0.0.0.0/0 to allow all
-      IP addresses access, or another CIDR range.
-    Type: String
-    MinLength: '9'
   InstanceType:
     Description: >-
       Amazon EC2 instance type for the Pyramid instance. Has to be available for
@@ -150,6 +140,15 @@ Parameters:
     MinLength: '8'
     NoEcho: 'True'
     Type: String
+  FileSystemType:
+    Description: >-
+      Local file system or EFS for shared files and IMDB.
+    Type: String
+    Default: EFS
+    AllowedValues:
+      - Local
+      - EFS
+    ConstraintDescription: Required
   ExistingFileSystemId:
     Description: >-
       For reusing an existing file system for Pyramid combined with an existing repository database.
@@ -173,11 +172,22 @@ Conditions:
     - !Equals 
       - !Ref AllowSSHSecurityGroup
       - ''
-  CreateFileSystem: !Equals
-    - !Ref ExistingFileSystemId
-    - ''
-  ReuseExistingFileSystem: !Not 
-    - !Condition CreateFileSystem
+  EFSFileSystem: !Equals
+    - !Ref FileSystemType
+    - 'EFS'
+  CreateFileSystem: !And
+    - !Condition EFSFileSystem
+    - !Equals
+      - !Ref ExistingFileSystemId
+      - ''
+  ReuseExistingFileSystem: !And
+    - !Condition EFSFileSystem
+    - !Not
+      - !Equals
+        - !Ref ExistingFileSystemId
+        - ''
+  # ReuseExistingFileSystem: !Not 
+  #   - !Condition CreateFileSystem
 
 Resources:
 
@@ -337,6 +347,7 @@ Resources:
 
   MountTargetSecurityGroup:
     Type: 'AWS::EC2::SecurityGroup'
+    Condition: EFSFileSystem
     Properties:
       GroupDescription: FileSystem Security Group
       VpcId: !Ref VPCID
@@ -523,6 +534,7 @@ Resources:
 
   PyramidSharedFileSystemManagedPolicy:
     Type: 'AWS::IAM::ManagedPolicy'
+    Condition: EFSFileSystem
     # DependsOn: SharedFileSystem
     Properties:
       PolicyDocument:
@@ -546,6 +558,7 @@ Resources:
 
   DeleteMountTargetsRole:
     Type: 'AWS::IAM::Role'
+    Condition: EFSFileSystem
     Properties:
       ManagedPolicyArns:
         - !Ref PyramidSharedFileSystemManagedPolicy
@@ -582,6 +595,7 @@ Resources:
 
   DeleteMountTargetsLambda:
     Type: 'AWS::Lambda::Function'
+    Condition: EFSFileSystem
     Properties:
       Code:
         ZipFile: |
@@ -643,6 +657,7 @@ Resources:
 
   DeleteMountTargets:
     Type: 'Custom::DeleteMountTargetsLambda'
+    Condition: EFSFileSystem
     Properties:
       ServiceToken: !GetAtt DeleteMountTargetsLambda.Arn
       EFSId: !If
@@ -701,10 +716,14 @@ Resources:
 
   MountTargetSecurityGroupSSM:
     Type: AWS::SSM::Parameter
+    Condition: EFSFileSystem
     Properties:
       Name: !Sub '/Pyramid/${BaseStackName}/MountTargetSecurityGroup'
       Type: String
-      Value: !Ref MountTargetSecurityGroup
+      Value: !If
+        - EFSFileSystem
+        - !Ref MountTargetSecurityGroup
+        - No EFS
       Description: Security group to allow Pyramid instances mount EFS volumes
       Tags:
         StackName: !Sub '${BaseStackName}'
@@ -716,9 +735,12 @@ Resources:
       Name: !Sub '/Pyramid/${BaseStackName}/SharedFileSystem'
       Type: String
       Value: !If
-        - CreateFileSystem
-        - !Ref SharedFileSystem
-        - !Ref ExistingFileSystemId
+        - EFSFileSystem
+        - !If
+          - CreateFileSystem
+          - !Ref SharedFileSystem
+          - !Ref ExistingFileSystemId
+        - 'Local'
       Description: EFS volume shared across Pyramid instances
       Tags:
         StackName: !Sub '${BaseStackName}'
@@ -772,10 +794,16 @@ Outputs:
     Value: !GetAtt PyramidProcessesSecurityGroup.GroupId
     Description: Security Group Id for Pyramid instances' internal communication
   MountTargetSecurityGroup:
-    Value: !Ref MountTargetSecurityGroup
+    Value: !If
+      - EFSFileSystem
+      - !Ref MountTargetSecurityGroup
+      - No EFS
     Description: Security Group for EFS Mount Targets
   MountTargetSecurityGroupId:
-    Value: !GetAtt MountTargetSecurityGroup.GroupId
+    Value: !If
+      - EFSFileSystem
+      - !GetAtt MountTargetSecurityGroup.GroupId
+      - No EFS
     Description: Security Group Id for EFS Mount Targets
 
   PyramidRole:
@@ -787,10 +815,17 @@ Outputs:
     
   SharedFileSystem:
     Value: !If
-      - CreateFileSystem
-      - !Ref SharedFileSystem
-      - !Ref ExistingFileSystemId
-    Description: EFS file system ID for the shared file system across the deployment
+      - EFSFileSystem
+      - !If
+        - CreateFileSystem
+        - !Ref SharedFileSystem
+        - !Ref ExistingFileSystemId
+      - 'Local'
+    # Value: !If
+    #   - CreateFileSystem
+    #   - !Ref SharedFileSystem
+    #   - !Ref ExistingFileSystemId
+    Description: EFS file system ID for the shared file system across the deployment or Local
   InitialUsername:
     Value: !Ref InitialUsername
     Description: Initial Pyramid user name

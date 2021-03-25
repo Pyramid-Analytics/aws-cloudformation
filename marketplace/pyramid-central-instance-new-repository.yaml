@@ -29,6 +29,11 @@ Metadata:
           - RDSPassword
           - RDSName
       - Label:
+          default: New File System
+        Parameters:
+          - FileSystemType
+          - EBSVolumeSize
+      - Label:
           default: Pyramid S3 backup to restore from
         Parameters:
           - BackupS3Bucket
@@ -53,8 +58,7 @@ Metadata:
       RDSServiceName:
         default: New RDS service name
       NewRDSSubnets:
-        default: >-
-          New RDS service subnets
+        default: New RDS service subnets
       RDSUser:
         default: RDS database user name
       RDSPassword:
@@ -65,6 +69,10 @@ Metadata:
         default: Initial Pyramid user name
       InitialUserPassword:
         default: Initial Pyramid User password
+      FileSystemType:
+        default: Local file system or EFS for shared files and IMDB
+      EBSVolumeSize:
+        default: Size of EC2 EBS volume (GB)
       BackupS3Bucket:
         default: S3 bucket containing a Pyramid backup
       BackupS3Folder:
@@ -220,6 +228,19 @@ Parameters:
     MinLength: '8'
     NoEcho: 'True'
     Type: String
+  FileSystemType:
+    Description: >-
+      Local file system or EFS for shared files and IMDB.
+    Type: String
+    Default: EFS
+    AllowedValues:
+      - Local
+      - EFS
+    ConstraintDescription: Required
+  EBSVolumeSize:
+    Type: Number
+    Default: 20
+    Description: When using an EBS volume
   BackupS3Bucket:
     Description: >-
       S3 bucket to a Pyramid backup
@@ -321,6 +342,9 @@ Conditions:
     - !Equals 
       - !Ref BackupS3Bucket
       - ''
+  # EFSFileSystem: !Equals
+  #   - !Ref FileSystemType
+  #   - 'EFS'
 
 Resources:
 
@@ -328,7 +352,7 @@ Resources:
     Type: 'AWS::CloudFormation::Stack'
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-15/pyramid-base-resources-parameters.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-15-custom/pyramid-base-resources-parameters.yaml
       Parameters:
         BaseStackName: !Ref AWS::StackName
         VPCID: !Ref VPCID
@@ -337,6 +361,7 @@ Resources:
         AllowSSHSecurityGroup: !Ref AllowSSHSecurityGroup
         InitialUsername: !Ref InitialUsername
         InitialUserPassword: !Ref InitialUserPassword
+        FileSystemType: !Ref FileSystemType
 
   CreateRepositoryDatabaseService:
     Type: 'AWS::CloudFormation::Stack'
@@ -345,7 +370,7 @@ Resources:
     DependsOn: BaseResourcesParameters
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-15/pyramid-repository-database.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-15-custom/pyramid-repository-database.yaml
       Parameters:
         BaseStackName: !Ref AWS::StackName
         RDSDeploymentType: !Ref RDSDeploymentType
@@ -482,7 +507,7 @@ Resources:
       - PyramidProcessesSecurityGroupRepositoryAccess
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-15/pyramid-backup-restore-s3.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-15-custom/pyramid-backup-restore-s3.yaml
       Parameters:
         BackupRestore: restore
         BaseStackName: !Ref AWS::StackName
@@ -496,7 +521,7 @@ Resources:
       - PyramidProcessesSecurityGroupRepositoryAccess
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-15/pyramid-single-instance.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-15-custom/pyramid-single-instance.yaml
       Parameters:
         AMIID: !FindInMap 
           - AWSAMIRegionMap
@@ -506,18 +531,23 @@ Resources:
         PyramidProcess: Everything
         InstancePurpose: CentralInstance
         InstanceType: !Ref InstanceType
-        WorkloadSecurityGroups: !Join 
-          - ','
-          - - !GetAtt BaseResourcesParameters.Outputs.WebAccessSecurityGroup
-            - !GetAtt BaseResourcesParameters.Outputs.PyramidProcessesSecurityGroup
-            - !GetAtt BaseResourcesParameters.Outputs.MountTargetSecurityGroup
+        # WorkloadSecurityGroups: !Join 
+        #   - ','
+        #   - - !GetAtt BaseResourcesParameters.Outputs.WebAccessSecurityGroup
+        #     - !GetAtt BaseResourcesParameters.Outputs.PyramidProcessesSecurityGroup
+        #     # - !If
+        #     #   - EFSFileSystem
+        #     #   - !GetAtt BaseResourcesParameters.Outputs.MountTargetSecurityGroup
+        #     #   - !Ref 'AWS::NoValue'
         Subnet: !Ref Subnet
         AssignPublicIP: !Ref AssignPublicIP
-        InstallProxy: true
+        # InstallProxy: true
         RepositoryType: !If
           - RestoreFromBackup
           - reuseremote
           - newremote
+        SharedFileSystemParameterValue: !GetAtt BaseResourcesParameters.Outputs.SharedFileSystem
+        EBSVolumeSize: !Ref EBSVolumeSize
         #  Unused parameter. Only for dependency management in calling CFTs
         DependencyValue: !If
           - RestoreFromBackup

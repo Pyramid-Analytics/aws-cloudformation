@@ -11,9 +11,9 @@ Metadata:
           - AMIID
           - Subnet
           - InstanceType
-          - WorkloadSecurityGroups
+          # - WorkloadSecurityGroups
           - AssignPublicIP
-          - InstallProxy
+          # - InstallProxy
       - Label:
           default: Pyramid instance configuration
         Parameters:
@@ -23,9 +23,11 @@ Metadata:
           - RunOnce
           - DependencyValue
       - Label:
-          default: Repository Database configuration
+          default: Repository Database and file system configuration
         Parameters:
           - RepositoryType
+          - FileSystemType
+          - SharedFileSystemParameter
     ParameterLabels:
       BaseStackName:
         default: Base Stack this stack is a part of
@@ -33,8 +35,8 @@ Metadata:
         default: Pyramid processes to run
       InstancePurpose:
         default: Note on this instance's purpose
-      WorkloadSecurityGroups:
-        default: Security Groups for instances
+      # WorkloadSecurityGroups:
+      #   default: Security Groups for instances
       AMIID:
         default: Pyramid AMI Id
       Subnet:
@@ -43,6 +45,10 @@ Metadata:
         default: Assign public IP and domain name
       RepositoryType:
         default: Using existing repository database, or creating new one
+      FileSystemType:
+        default: Local file system or EFS for shared files and IMDB
+      SharedFileSystemParameter:
+        default: Based on passed name
       InstanceType:
         default: Cluster instance type
       RunOnce:
@@ -89,11 +95,11 @@ Parameters:
     Description: AMI ID of the Pyramid AWS Workplace listing. Usually passed in from another template.
     Type: AWS::EC2::Image::Id
     ConstraintDescription: Required
-  WorkloadSecurityGroups:
-    Description: >-
-      Security groups shared between Pyramid processes
-    Type: CommaDelimitedList
-    ConstraintDescription: Required
+  # WorkloadSecurityGroups:
+  #   Description: >-
+  #     Security groups shared between Pyramid processes
+  #   Type: CommaDelimitedList
+  #   ConstraintDescription: Required
   RunOnce:
     Description: >-
       Run the instance start scripts and terminate.
@@ -261,16 +267,65 @@ Parameters:
       - reuseremote
     Default: currentremote
     ConstraintDescription: Must contain newremote, currentremote or reuseremote.
+  FileSystemType:
+    Description: >-
+      Local file system or EFS for shared files and IMDB.
+    Type: String
+    Default: EFS
+    AllowedValues:
+      - Local
+      - EFS
+    ConstraintDescription: Required
+  SharedFileSystemParameterValue:
+    Type: String
+    Description: Value of SharedFileSystem SSM Parameter
+  EBSVolumeSize:
+    Type: Number
+    Default: 20
+    Description: When using an EBS volume
+
 Conditions:
   TerminateInstance: !Equals
-   - !Ref RunOnce
-   - 'true'
-  InstallNginx: !Equals
-   - !Ref InstallProxy
-   - 'true'
-  AssignPublicIPCondition: !Equals
-   - !Ref AssignPublicIP
-   - 'true'
+    - !Ref RunOnce
+    - 'true'
+
+  WebAccess: !Or
+    - !Equals
+      - !Ref PyramidProcess
+      - 'Everything'
+    - !Equals
+      - !Ref PyramidProcess
+      - 'WebServerAndRouter'
+    - !Equals
+      - !Ref PyramidProcess
+      - 'WebServer'
+
+  # InstallNginx: !If
+  #   - WebAccess
+  #   - true
+  #   - false
+
+  AssignPublicIPCondition: !And
+    - !Condition WebAccess
+    - !Equals
+      - !Ref AssignPublicIP
+      - 'true'
+
+  # AssignPublicIP: !If
+  #   - WebAccess
+  #   - !Ref AssignPublicIP
+  #   - false
+
+  # InstallNginx: !Equals
+  #   - !Ref InstallProxy
+  #   - 'true'
+  # AssignPublicIPCondition: !Equals
+  #   - !Ref AssignPublicIP
+  #   - 'true'
+
+  LocalFileSystem: !Equals
+    - !Ref SharedFileSystemParameterValue
+    - 'Local'
 
 Resources:
   InstanceWaitHandle:
@@ -294,7 +349,7 @@ Resources:
             - 03_restart_amazon-cloudwatch-agent
             - InstallPyramid
             - !If
-              - InstallNginx
+              - WebAccess
               - StartNginx
               - !Ref 'AWS::NoValue'
           UpdateEnvironment:
@@ -401,7 +456,13 @@ Resources:
               test: "ls /usr/src/pyramid/pyramid-unattended-install.ini"
               command: "rm /usr/src/pyramid/pyramid-unattended-install.ini && rm -f /tmp/pyr*.log && rm -f /tmp/bit*.log"
               ignoreErrors: 'false'
+            #  test 'EFS' = 'Local' && echo match || echo no match
             4-mount-shared-fs:
+              test: !Join
+                - ''
+                - - '[ ''Local'' != '''
+                  - !Ref SharedFileSystemParameterValue
+                  - ''' ]'
               command: !Join
                 - ' '
                 - - '/usr/src/pyramid/mnt-efs.sh --mountPoint /mnt/pyramid'
@@ -410,11 +471,14 @@ Resources:
                   - '--efsRootDirectory /shared'
               ignoreErrors: 'false'
             5-mount-IMDB-fs:
+              # [ 'EFS' = 'EFS' ] && [[ 'Every,Nothing' == *Edvery* ]]  && echo match || echo no match
               test: !Join
                 - ''
                 - - '[[ ''Everything,InMemoryDB'' == *"'
                   - !Ref PyramidProcess
-                  - '"* ]]'
+                  - '"* ]] && [ ''Local'' != '''
+                  - !Ref SharedFileSystemParameterValue
+                  - ''' ]'
               command: !Join
                 - ' '
                 - - '/usr/src/pyramid/mnt-imdb.sh'
@@ -460,7 +524,24 @@ Resources:
       SecurityGroupIds: !If
         - AssignPublicIPCondition
         - !Ref 'AWS::NoValue'
-        - !Ref WorkloadSecurityGroups
+        - - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/PyramidProcessesSecurityGroup:1}}'
+          - !If
+            - WebAccess
+            - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/WebAccessSecurityGroup:1}}'
+            - !Ref 'AWS::NoValue'
+          - !If
+            - LocalFileSystem
+            - !Ref 'AWS::NoValue'
+            - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/MountTargetSecurityGroup:1}}'
+
+        # - !Ref WorkloadSecurityGroups
+        # WorkloadSecurityGroups: !Join
+        #   - ','
+        #   - - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/PyramidProcessesSecurityGroup:1}}'
+        #     - !If
+        #       - WebAccess
+        #       - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/WebAccessSecurityGroup:1}}'
+        #       - !Ref 'AWS::NoValue'
       SubnetId: !If
         - AssignPublicIPCondition
         - !Ref 'AWS::NoValue'
@@ -474,14 +555,24 @@ Resources:
       BlockDeviceMappings:
         - DeviceName: "/dev/sda1"
           Ebs: 
-            VolumeSize: 20
+            VolumeSize: !Ref EBSVolumeSize
       NetworkInterfaces: !If
         - AssignPublicIPCondition
         - -
             AssociatePublicIpAddress: true
             DeleteOnTermination: true
             DeviceIndex: '0'
-            GroupSet: !Ref WorkloadSecurityGroups
+            # !Ref WorkloadSecurityGroups
+            GroupSet: 
+              - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/PyramidProcessesSecurityGroup:1}}'
+              - !If
+                - WebAccess
+                - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/WebAccessSecurityGroup:1}}'
+                - !Ref 'AWS::NoValue'
+              - !If
+                - LocalFileSystem
+                - !Ref 'AWS::NoValue'
+                - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/MountTargetSecurityGroup:1}}'
             SubnetId: !Ref Subnet
         - !Ref 'AWS::NoValue'
       UserData: !Base64

@@ -14,6 +14,7 @@ Metadata:
           - InstanceType
           - PyramidProcess
           - AssignPublicIP
+          - EBSVolumeSize
     ParameterLabels:
       BaseStackName:
         default: Stack Name of Central instance stack
@@ -25,6 +26,8 @@ Metadata:
         default: Assign public IP and domain name
       PyramidProcess:
         default: Pyramid process(es) for instance
+      EBSVolumeSize:
+        default: Size of EC2 EBS volume (GB)
 Parameters:
   Subnet:
     Description: Subnet for instance within VPC of the original single instance Stack
@@ -186,6 +189,11 @@ Parameters:
       - InMemoryDB
       - Nothing
     Default: Everything
+  EBSVolumeSize:
+    Type: Number
+    Default: 20
+    Description: When using an EBS volume
+
 Mappings:
 # 2020.15.046
 
@@ -249,12 +257,15 @@ Conditions:
     - !Equals
       - !Ref AssignPublicIP
       - 'true'
+  # LocalFileSystem: !Equals
+  #   - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/SharedFileSystem:1}}'
+  #   - 'Local'
 
 Resources:
   LaunchInstance:
     Type: 'AWS::CloudFormation::Stack'
     Properties:
-      TemplateURL: https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-15/pyramid-single-instance.yaml
+      TemplateURL: https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-15-custom/pyramid-single-instance.yaml
       Parameters:
         BaseStackName: !Ref BaseStackName
         AMIID: !FindInMap 
@@ -266,23 +277,23 @@ Resources:
         InstanceType: !Ref InstanceType
 
         Subnet: !Ref Subnet
-        WorkloadSecurityGroups: !Join
-          - ','
-          - - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/PyramidProcessesSecurityGroup:1}}'
-            - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/MountTargetSecurityGroup:1}}'
-            - !If
-              - WebAccess
-              - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/WebAccessSecurityGroup:1}}'
-              - !Ref 'AWS::NoValue'
-        InstallProxy: !If
-          - WebAccess
-          - true
-          - false
+        # WorkloadSecurityGroups: !Join
+        #   - ','
+        #   - - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/PyramidProcessesSecurityGroup:1}}'
+        #     - !If
+        #       - WebAccess
+        #       - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/WebAccessSecurityGroup:1}}'
+        #       - !Ref 'AWS::NoValue'
+        # InstallProxy: !If
+        #   - WebAccess
+        #   - true
+        #   - false
         AssignPublicIP: !If
           - WebAccess
           - !Ref AssignPublicIP
           - false
-
+        SharedFileSystemParameterValue: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/SharedFileSystem:1}}'
+        EBSVolumeSize: !Ref EBSVolumeSize
         RepositoryType: currentremote
 
 Outputs:
