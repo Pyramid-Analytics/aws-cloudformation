@@ -11,6 +11,9 @@ yum clean metadata
 yum -y install amazon-efs-utils amazon-cloudwatch-agent postgresql nginx yum-cron
 yum -y update
 
+sed -i 's/apply_updates = no/apply_updates = yes/' /etc/yum/yum-cron.conf
+sed -i 's/apply_updates = no/apply_updates = yes/' /etc/yum/yum-cron-hourly.conf
+
 chkconfig yum-cron on
 systemctl start yum-cron 
 
