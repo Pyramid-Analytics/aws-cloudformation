@@ -244,47 +244,7 @@ Mappings:
 
   AWSAMIRegionMap:
     us-east-1:
-      '64': ami-0332381ea93801fca
-    us-east-2:
-      '64': ami-07df01338608019b1
-    us-west-1:
-      '64': ami-0b3e1d2a19c485bbd
-    us-west-2:
-      '64': ami-0e8711a4b3c4abe92
-    ca-central-1:
-      '64': ami-05b3e380d116c03bf
-    eu-central-1:
-      '64': ami-07bc544bb33d18998
-    eu-west-1:
-      '64': ami-0dd69c8bc1d285c55
-    eu-west-2:
-      '64': ami-0266c63c8607f28f8
-    eu-west-3:
-      '64': ami-0f1e64f1e5590fa3c
-    eu-north-1:
-      '64': ami-0ea81e60fb6605bf6
-    eu-south-1:
-      '64': ami-058de9f7162d603c2
-    ap-southeast-1:
-      '64': ami-07e8d36c02edeeb9b
-    ap-southeast-2:
-      '64': ami-0524ec26cec47b7c4
-    ap-south-1:
-      '64': ami-0916bf531eea1220b
-    ap-northeast-1:
-      '64': ami-0ec5f0355dc068508
-    ap-northeast-2:
-      '64': ami-0f129e518db0364eb
-    sa-east-1:
-      '64': ami-09b0aeb91b3fe381a
-    us-gov-east-1:
-      '64': ami-02c0b88d2e8e490f3
-    us-gov-west-1:
-      '64': ami-0f1bea2a206905352
-    af-south-1:
-      '64': ami-0e1bc5bbc2228b8cd
-    me-south-1:
-      '64': ami-02141cc358e903028
+      '64': ami-04032e0691942617a
 Rules:
   SubnetsNotEmpty:
     Assertions:
@@ -328,7 +288,7 @@ Resources:
     Type: 'AWS::CloudFormation::Stack'
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-15/pyramid-base-resources-parameters.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-17/pyramid-base-resources-parameters.yaml
       Parameters:
         BaseStackName: !Ref AWS::StackName
         VPCID: !Ref VPCID
@@ -345,7 +305,7 @@ Resources:
     DependsOn: BaseResourcesParameters
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-15/pyramid-repository-database.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-17/pyramid-repository-database.yaml
       Parameters:
         BaseStackName: !Ref AWS::StackName
         RDSDeploymentType: !Ref RDSDeploymentType
@@ -482,7 +442,7 @@ Resources:
       - PyramidProcessesSecurityGroupRepositoryAccess
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-15/pyramid-backup-restore-s3.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-17/pyramid-backup-restore-s3.yaml
       Parameters:
         BackupRestore: restore
         BaseStackName: !Ref AWS::StackName
@@ -496,7 +456,7 @@ Resources:
       - PyramidProcessesSecurityGroupRepositoryAccess
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-15/pyramid-single-instance.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-17/pyramid-single-instance.yaml
       Parameters:
         AMIID: !FindInMap 
           - AWSAMIRegionMap
