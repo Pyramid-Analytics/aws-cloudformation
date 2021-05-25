@@ -17,6 +17,7 @@ Metadata:
           - AllowSSHSecurityGroup
           - InitialUsername
           - InitialUserPassword
+          - FileUploadSize
       - Label:
           default: File System
         Parameters:
@@ -36,6 +37,8 @@ Metadata:
         default: Initial Pyramid user name
       InitialUserPassword:
         default: Initial Pyramid User password
+      FileUploadSize:
+        default: File upload size setting for nginx web server (MB)
       ExistingFileSystemId:
         default: Existing File system Id
 Parameters:
@@ -147,6 +150,13 @@ Parameters:
     MinLength: '8'
     NoEcho: 'True'
     Type: String
+  FileUploadSize:
+    Description: >-
+      File upload size setting for nginx (MB).
+    Type: Number
+    Default: 200
+    MinValue: 200
+    ConstraintDescription: Must be more than 200 (MB).
   ExistingFileSystemId:
     Description: >-
       For reusing an existing file system for Pyramid combined with an existing repository database.
@@ -670,6 +680,17 @@ Resources:
       Type: String
       Value: !Ref KeyPairName
       Description: Key pair name
+      Tags:
+        StackName: !Ref BaseStackName
+        Vendor: Pyramid
+
+  FileUploadSizeSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/Pyramid/${BaseStackName}/FileUploadSize'
+      Type: String
+      Value: !Ref FileUploadSize
+      Description: Max File Upload Size (MB)
       Tags:
         StackName: !Ref BaseStackName
         Vendor: Pyramid
