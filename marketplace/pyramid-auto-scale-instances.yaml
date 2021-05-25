@@ -273,8 +273,19 @@ Conditions:
     - !Equals 
       - !Ref TargetGroupARN
       - ''
+  WebAccess: !Or
+    - !Equals
+      - !Ref PyramidProcess
+      - 'Everything'
+    - !Equals
+      - !Ref PyramidProcess
+      - 'WebServerAndRouter'
+    - !Equals
+      - !Ref PyramidProcess
+      - 'WebServer'
 
 Resources:
+  # copied from pyramid-single-instance.yaml
   PyramidProcessLaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Metadata:
@@ -285,6 +296,10 @@ Resources:
             - 02_config-amazon-cloudwatch-agent
             - 03_restart_amazon-cloudwatch-agent
             - InstallPyramid
+            - !If
+              - WebAccess
+              - StartNginx
+              - !Ref 'AWS::NoValue'
           UpdateEnvironment:
             - 02_config-amazon-cloudwatch-agent
             - 03_restart_amazon-cloudwatch-agent
@@ -341,17 +356,17 @@ Resources:
                           {
                             "file_path": "/var/log/cfn-init.log",
                             "log_group_name": "/pyramid/${BaseStackName}",
-                            "log_stream_name": "{instance_id}-${InstancePurpose}/cf-init",
+                            "log_stream_name": "{instance_id}-${InstancePurpose}/cfn-init",
                             "timestamp_format": "%Y-%m-%d %H:%M:%S,%f"
                           },
-                          {
+                           {
                             "file_path": "/tmp/*.log",
                             "log_group_name": "/pyramid/${BaseStackName}",
-                            "log_stream_name": "{instance_id}-${InstancePurpose}/installers",
-                            "timestamp_format": "%Y-%m-%d %H:%M:%S,%f"
+                            "log_stream_name": "{instance_id}-${InstancePurpose}/installer",
+                            "timestamp_format": "[%Y-%m-%d]-[%H:%M:%S]"
                           },
                           {
-                            "file_path": "/opt/Pyramid/log/*.log",
+                            "file_path": "/opt/Pyramid/**.log",
                             "log_group_name": "/pyramid/${BaseStackName}",
                             "log_stream_name": "{instance_id}-${InstancePurpose}/pyramid-logs",
                             "timestamp_format": "%Y-%m-%d %H:%M:%S,%f"
@@ -369,42 +384,25 @@ Resources:
             02_start_service:
               command: /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
 
+
         InstallPyramid:
           commands:
-
-  # Single EFS volume now
-  # /mnt/pyramid
-
-  #   shared/
-  #   common file system
-  #   fs:/shared to /mnt/pyramid
-  #   create fs:/shared if it does not exist
-
-  #   imdb/<id>
-  #     individual imdata directories
-  #     current list in ssm baseStack/stack/IMDBFileSystem = <id> vs list of imdb/<id>
-  #     if list of imdb/<id> is longer than baseStack/stack/IMDBFileSystem
-  #       use next imdb/<id> -> baseStack/stack/IMDBFileSystem
-  #     else
-  #       create new imdb/<id>
-  #     fs:imdb/<id> to /mnt/pyramid-imdb
-
-  #   repoBackup/$baseStackName-repository-$timestamp.dump
-  #     backups
-  #     ignore these in Pyramid instances
             1-generate-unattended-install-settings:
+              test: "ls /usr/src/pyramid/*.run"
               command: !Join
                 - ' '
                 - - '/usr/src/pyramid/unattended-install-settings.sh'
                   - !Ref BaseStackName
-                  - currentremote
+                  - !Ref RepositoryType
                   - !Ref PyramidProcess
               ignoreErrors: 'false'
             2-install:
+              test: "ls /usr/src/pyramid/*.run"
               cwd: /usr/src/pyramid
               command: "for i in Pyramid*.run; do /usr/src/pyramid/$i --mode unattended --optionfile /usr/src/pyramid/pyramid-unattended-install.ini; done"
               ignoreErrors: 'false'
             3-cleanup:
+              test: "ls /usr/src/pyramid/pyramid-unattended-install.ini"
               command: "rm /usr/src/pyramid/pyramid-unattended-install.ini && rm -f /tmp/pyr*.log && rm -f /tmp/bit*.log"
               ignoreErrors: 'false'
             4-mount-shared-fs:
@@ -429,7 +427,62 @@ Resources:
                   - !Ref BaseStackName
                   - '--currentStackName'
                   - !Ref 'AWS::StackName'
+                  - '--initialize true'
               ignoreErrors: 'false'
+
+        StartNginx:
+          files:
+            /etc/nginx/default.d/proxy.conf:
+              content: !Join
+                - ''
+                - - |
+                    location / {
+
+                  - |
+                      proxy_pass http://127.0.0.1:8181;
+
+                  - '  client_max_body_size '
+                  - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/FileUploadSize:1}}'
+                  - M;
+                  - |+
+
+                  - |
+                    }
+
+                  - |
+                    location /events {
+
+                  - |
+                      proxy_pass http://127.0.0.1:8181/events;
+
+                  - |
+                      proxy_http_version 1.1;
+
+                  - |
+                      proxy_set_header Upgrade $http_upgrade;
+
+                  - |
+                      proxy_set_header Connection "upgrade";
+
+                  - '  client_max_body_size '
+                  - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/FileUploadSize:1}}'
+                  - M;
+                  - |+
+
+                  - |
+                    }
+              mode: '000755'
+              owner: root
+              group: root
+
+          services:
+            sysvinit:
+              nginx:
+                enabled: true
+                ensureRunning: true
+                files:
+                  - /etc/nginx/default.d/proxy.conf
+
     Properties: 
       LaunchTemplateName: !Sub '${AWS::StackName}-${PyramidProcess}'
       LaunchTemplateData: 

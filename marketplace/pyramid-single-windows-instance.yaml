@@ -244,17 +244,17 @@ Resources:
                           {
                             "file_path": "C:\\cfn\\log\\cfn-init.log",
                             "log_group_name": "/pyramid/${BaseStackName}",
-                            "log_stream_name": "{instance_id}-${InstancePurpose}/cf-init",
+                            "log_stream_name": "{instance_id}-${InstancePurpose}/cfn-init",
                             "timestamp_format": "%Y-%m-%d %H:%M:%S,%f"
                           },
                            {
                             "file_path": "INSTALL_LOG_PATH\\*.log",
                             "log_group_name": "/pyramid/${BaseStackName}",
-                            "log_stream_name": "{instance_id}-${InstancePurpose}/installers",
-                            "timestamp_format": "%Y-%m-%d %H:%M:%S,%f"
+                            "log_stream_name": "{instance_id}-${InstancePurpose}/installer",
+                            "timestamp_format": "[%Y-%m-%d]-[%H:%M:%S]"
                           },
                           {
-                            "file_path": "C:\\Program Files\\Pyramid\\log\\*.log",
+                            "file_path": "C:\\Program Files\\Pyramid\\**.log",
                             "log_group_name": "/pyramid/${BaseStackName}",
                             "log_stream_name": "{instance_id}-${InstancePurpose}/pyramid-logs",
                             "timestamp_format": "%Y-%m-%d %H:%M:%S,%f"
