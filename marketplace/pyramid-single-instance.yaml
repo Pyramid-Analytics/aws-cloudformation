@@ -283,8 +283,8 @@ Resources:
     Type: 'AWS::CloudFormation::WaitCondition'
     Properties:
       Handle: !Ref InstanceWaitHandle
-      # 30 mins
-      Timeout: '1800'
+      # 30 mins/1800 secs originally. 2020.20 has a larger set of resources to unpack, so go to 40 mins  :-/
+      Timeout: '2400'
       Count: 1
 
   PyramidInstance:

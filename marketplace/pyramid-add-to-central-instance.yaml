@@ -190,47 +190,7 @@ Mappings:
 # 2020.17.033 AWS version
   AWSAMIRegionMap:
     us-east-1:
-      '64': ami-0bca171b7f8d777f0
-    us-gov-east-1:
-      '64': ami-084d631320467a816
-    us-gov-west-1:
-      '64': ami-0c7b7af0ce61a5c4e
-    us-east-2:
-      '64': ami-09a6e3202e6055c2b
-    us-west-1:
-      '64': ami-0db85e425259e7acf
-    us-west-2:
-      '64': ami-0eedf2de0c8a490f5
-    ca-central-1:
-      '64': ami-095694bbb5c882bab
-    eu-west-1:
-      '64': ami-084519098ac357b29
-    eu-west-2:
-      '64': ami-017c76427bf17b5b3
-    eu-west-3:
-      '64': ami-09d0a296ad41768be
-    eu-central-1:
-      '64': ami-0647e92f7186538b8
-    eu-north-1:
-      '64': ami-0e80903451f0ad340
-    eu-south-1:
-      '64': ami-09e8a32ec5a4e0de8
-    ap-northeast-1:
-      '64': ami-00a45dfe1c2f470f2
-    ap-northeast-2:
-      '64': ami-0a027c04ec2ebaf39
-    ap-southeast-1:
-      '64': ami-04be10fa0ae074680
-    ap-southeast-2:
-      '64': ami-08ac04d72e1a67f56
-    sa-east-1:
-      '64': ami-078d1af001273c634
-    ap-south-1:
-      '64': ami-04e097147ad76c6c0
-    me-south-1:
-      '64': ami-06679292d99028825
-    af-south-1:
-      '64': ami-0b26f6f6594e6ac06
+      '64': ami-083dd547b9abe67a7
 
 Conditions:
   WebAccess: !Or
@@ -253,7 +213,7 @@ Resources:
   LaunchInstance:
     Type: 'AWS::CloudFormation::Stack'
     Properties:
-      TemplateURL: https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-17/pyramid-single-instance.yaml
+      TemplateURL: https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-20/pyramid-single-instance.yaml
       Parameters:
         BaseStackName: !Ref BaseStackName
         AMIID: !FindInMap 
