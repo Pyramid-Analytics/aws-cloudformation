@@ -246,11 +246,52 @@ Parameters:
     Default: c5.2xlarge
     ConstraintDescription: Must contain valid instance type.
 Mappings:
-# 2020.18.041 AWS version
+# 2020.22.015 AWS version
 
   AWSAMIRegionMap:
     us-east-1:
-      '64': ami-080230d4739cfd20b
+      '64': ami-043c29a5d9f06a6dd
+    us-gov-west-1:
+      '64': ami-0b6fb28797c665bbd
+    us-gov-east-1:
+      '64': ami-0e9b2c551a4bd3dda
+    us-east-2:
+      '64': ami-061c4e370a916f72d
+    us-west-1:
+      '64': ami-030f063d2f2c4ab0f
+    us-west-2:
+      '64': ami-040ff49b4c8f7daa4
+    ca-central-1:
+      '64': ami-017b4ff2c55e3ce13
+    eu-central-1:
+      '64': ami-06b9d1df361db013d
+    eu-west-1:
+      '64': ami-081de2c79c7d57f41
+    eu-west-2:
+      '64': ami-07310171fd16fe38b
+    eu-west-3:
+      '64': ami-0c9a952ec761d1665
+    ap-southeast-1:
+      '64': ami-02e1f66f3d98364dc
+    ap-southeast-2:
+      '64': ami-01e05cff811c89103
+    ap-south-1:
+      '64': ami-006338e8b923ecafc
+    ap-northeast-1:
+      '64': ami-03d9e046a24964837
+    ap-northeast-2:
+      '64': ami-06444024f508dc4d9
+    sa-east-1:
+      '64': ami-09fe19bbed85a2511
+    eu-north-1:
+      '64': ami-09a2523e2d6fabfc6
+    me-south-1:
+      '64': ami-009c99de3544a5ac2
+    af-south-1:
+      '64': ami-063a2ec20eb6581b0
+    eu-south-1:
+      '64': ami-0b154dbe9729e016f
+
 Rules:
   SubnetsInVPC:
     Assertions:
@@ -326,7 +367,7 @@ Resources:
     Type: 'AWS::CloudFormation::Stack'
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-18/pyramid-autoscale-instances.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-22/pyramid-autoscale-instances.yaml
       Parameters:
         BaseStackName: !Ref BaseStackName
         PyramidProcess: EverythingExceptInMemoryDB
