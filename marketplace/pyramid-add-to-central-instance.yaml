@@ -187,6 +187,7 @@ Parameters:
       - Nothing
     Default: Everything
 Mappings:
+
 # 2020.22.015 AWS version
 
   AWSAMIRegionMap:

@@ -291,6 +291,7 @@ Mappings:
       '64': ami-063a2ec20eb6581b0
     eu-south-1:
       '64': ami-0b154dbe9729e016f
+
 Rules:
   SubnetsInVPC:
     Assertions:

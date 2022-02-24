@@ -272,6 +272,7 @@ Parameters:
     AllowedPattern: '^$|^(?=^.{5,1000}$)[a-zA-Z0-9][-_a-zA-Z0-9\/\=()+]*$'
     ConstraintDescription: >-
       Optional. Otherwise min 5 characters. First character must be a letter or number. Must contain only letters, digits, '/', '-', '+', '_', '=' or parentheses.
+
 Mappings:
 # 2020.22.015 AWS version
 
