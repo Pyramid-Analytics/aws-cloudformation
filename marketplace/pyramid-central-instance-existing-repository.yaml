@@ -275,11 +275,11 @@ Parameters:
 
 Mappings:
 
-# 2020.24.052 AWS version
+# 2020.24.054 AWS version
 
   AWSAMIRegionMap:
     us-east-1:
-      '64': ami-0190760553f5b5f2a
+      '64': ami-052c91cae5c38e302
 
 Rules:
   SubnetsNotEmpty:
