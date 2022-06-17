@@ -147,46 +147,23 @@ Mappings:
 
   DBConfiguration:
     PostgreSQLAuroraServerless:
-      clusterEngine: aurora-postgresql
-      clusterFamily: aurora-postgresql10
-      clusterEngineVersion: '10.12'
-      engine: no instance engine
-      engineVersion: no version
-      family: no instance family
-      majorEngineVersion: only for option group
+      engine: aurora-postgresql
       licenseModel: no explicit license
       instanceClass: no instance type
       port: '5432'
     PostgreSQLAuroraProvisioned:
-      clusterEngine: aurora-postgresql
-      clusterFamily: aurora-postgresql11
-      clusterEngineVersion: '11.9'
       engine: aurora-postgresql
-      engineVersion: '11.9'
-      family: aurora-postgresql11
-      majorEngineVersion: only for option group
       licenseModel: no explicit license
       instanceClass: db.r5.xlarge
       port: '5432'
     PostgreSQL:
-      clusterEngine: no cluster
-      clusterFamily: no cluster
-      clusterEngineVersion: no cluster
       engine: postgres
-      engineVersion: '11.9'
-      family: postgres11
-      majorEngineVersion: only for option group
       licenseModel: no explicit license
       instanceClass: db.r5.xlarge
       port: '5432'
     MicrosoftSQLServer:
-      clusterEngine: no cluster
-      clusterFamily: no cluster
-      clusterEngineVersion: no cluster
       engine: sqlserver-se
-      engineVersion: '14.00.3294.2.v1'
-      family: 'sqlserver-se-14.0'
-      majorEngineVersion: '14.00'
+      version: no instance version
       licenseModel: license-included
       instanceClass: db.r5.xlarge
       port: '1433'
@@ -237,6 +214,101 @@ Conditions:
 
 Resources:
 
+
+  DBEngineVersion:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+          from botocore.exceptions import ClientError
+
+          def get_default_engine_version(event, _):
+              
+              # find the default engine version of the given engine
+              
+              engine = event['ResourceProperties']['Engine']
+              region = event['ResourceProperties']['Region']
+              
+              client = boto3.client('rds')
+              
+              try:
+                  default_engine_version = client.describe_db_engine_versions(Engine=engine, DefaultOnly=True)
+              except ClientError as e:
+                  print(e)
+                  return {
+                        "Status" : False,
+                        "Message" :  e.response['Error']['Message']
+                  }
+                  
+              if len(default_engine_version["DBEngineVersions"]) == 0:
+                  return {
+                      "Status" : False,
+                      "Message" : f"no default_engine_versions for {engine}"
+                  }
+                  
+              if len(default_engine_version["DBEngineVersions"]) > 1:
+                  return {
+                      "Status" : False,
+                      "Message" : f"multiple default_engine_versions for {engine}"
+                  }
+
+              engine_version = default_engine_version["DBEngineVersions"][0]
+              return {
+                  "Status" : True,
+                  "EngineVersion" : engine_version["EngineVersion"],
+                  "Family" : engine_version["DBParameterGroupFamily"]
+              }
+
+          def handler(event, context):
+              print(event)
+              answer={}
+              status = cfnresponse.SUCCESS
+              if event.get("RequestType") != "Delete":
+                  answer = get_default_engine_version(event, context)
+                  if answer['Status'] == False:
+                      status = cfnresponse.FAILED
+              cfnresponse.send(event, context, status, responseData=answer)
+
+      Runtime: python3.7
+      Handler: index.handler
+      Timeout: 30
+      Role: !GetAtt DBEngineVersionExecutionRole.Arn
+
+  DBEngineVersionExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: DescribeEngineVersions
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: DescribeEngineVersions
+                Effect: Allow
+                Action:
+                  - 'rds:DescribeDBEngineVersions'
+                Resource: '*'
+
+  GetDBEngineVersion:
+    Type: Custom::DBEngineVersion
+    Properties:
+      ServiceToken: !GetAtt DBEngineVersion.Arn
+      Engine: !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "engine"]
+      Region: !Ref 'AWS::Region'
+
+
   # this template has a retain policy in the callers
   # do not retain here, to allow deletion
   EncryptionKey:
@@ -262,7 +334,8 @@ Resources:
     Condition: PostgreSQLStandalone
     Properties:
       Description: !Join [ "- ", [ "Repository database",  !Ref RDSDeploymentType, "for Stack", !Ref BaseStackName ] ]
-      Family: !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "family"]
+      Family: !GetAtt GetDBEngineVersion.Family
+      # EngineVersion: ! !GetAtt GetDBEngineVersion.EngineVersion
       Parameters:
         # rds.force_ssl: 0
         log_rotation_age: '1440'
@@ -274,7 +347,8 @@ Resources:
     Condition: SQLServer
     Properties:
       Description: !Join [ "- ", [ "Repository database",  !Ref RDSDeploymentType, "for Stack", !Ref BaseStackName ] ]
-      Family: !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "family"]
+      Family: !GetAtt GetDBEngineVersion.Family
+      # EngineVersion: ! !GetAtt GetDBEngineVersion.Version
       Parameters:
         rds.force_ssl: '0'
             
@@ -283,7 +357,8 @@ Resources:
     Condition: IsPostgreSQLAurora
     Properties:
       Description: !Join [ "- ", [ "Repository database",  !Ref RDSDeploymentType, "for Stack", !Ref BaseStackName ] ]
-      Family: !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "clusterFamily"]
+      Family: !GetAtt GetDBEngineVersion.Family
+      
       Parameters:
         rds.force_ssl: '0'
         log_rotation_age: '1440'
@@ -298,8 +373,7 @@ Resources:
       VpcSecurityGroupIds:
         - !Ref RDSSecurityGroup
       DBClusterIdentifier: !Ref DBServiceName
-      Engine: !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "clusterEngine"]
-      EngineVersion: !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "clusterEngineVersion"]
+      Engine: !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "engine"]
       EngineMode: !If 
         - PostgreSQLAuroraServerless
         - serverless
@@ -326,7 +400,6 @@ Resources:
         - !Ref DBInstanceClass
         - !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "instanceClass"]
       Engine: !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "engine"]
-      EngineVersion: !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "engineVersion"]
       LicenseModel: !If
         - SQLServer
         - !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "licenseModel"]
@@ -363,8 +436,6 @@ Resources:
         - !Ref DBInstanceClass
         - !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "instanceClass"]
       Engine: !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "engine"]
-      EngineVersion: !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "engineVersion"]
-      DeletionProtection: true
       PubliclyAccessible: false
       Tags:
         -
@@ -382,8 +453,6 @@ Resources:
         - !Ref DBInstanceClass
         - !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "instanceClass"]
       Engine: !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "engine"]
-      EngineVersion: !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "engineVersion"]
-      DeletionProtection: true
       PubliclyAccessible: false
       Tags:
         -

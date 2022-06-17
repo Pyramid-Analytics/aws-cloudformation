@@ -119,8 +119,8 @@ Resources:
     Type: 'AWS::CloudFormation::WaitCondition'
     Properties:
       Handle: !Ref InstanceWaitHandle
-      # 15 mins
-      Timeout: '900'
+      # 25 mins
+      Timeout: '1500'
       Count: 1
 
   NowFunc:
@@ -229,6 +229,7 @@ Resources:
             Action:
               - 'rds:ModifyDBInstance'
               - 'rds:DescribeDBInstances'
+              - 'rds:DescribeDBClusters'
               - 'rds:CopyOptionGroup'
               - 'rds:DescribeOptionGroups'
               - 'rds:ModifyOptionGroup'
@@ -244,8 +245,22 @@ Resources:
                   - !Ref AWS::AccountId
                   - ':db:'
                   - !Sub "{{resolve:ssm:/Pyramid/${BaseStackName}/RepositoryDatabaseServiceName:1}}"
-                  # - !Select [ 0, !Split [ ".", !Sub "{{resolve:ssm:/Pyramid/${BaseStackName}/RepositoryDatabaseAddress:1}}" ]]
               - !Sub 'arn:${AWS::Partition}:rds:${AWS::Region}:${AWS::AccountId}:og:*'
+          - Sid: RDSClusterAccess
+            Effect: Allow
+            Action:
+              - 'rds:DescribeDBClusters'
+            Resource:
+              - !Join
+                - ''
+                - - 'arn:'
+                  - !Ref AWS::Partition
+                  - ':rds:'
+                  - !Ref AWS::Region
+                  - ':'
+                  - !Ref AWS::AccountId
+                  - ':cluster:'
+                  - !Sub "{{resolve:ssm:/Pyramid/${BaseStackName}/RepositoryDatabaseServiceName:1}}"
       Roles:
         - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/PyramidRole:1}}'
 
@@ -273,15 +288,15 @@ Resources:
             yum:
               amazon-efs-utils: []
               amazon-cloudwatch-agent: []
+          # get latest AWS CLI. The default one on the instance is 1.X with bugs
           commands:
-            enable_amazon-linux-extras_packages:
-              command: amazon-linux-extras enable epel postgresql10
-            enable_microsoft_yum:
-              command: curl -sS https://packages.microsoft.com/config/rhel/6/prod.repo > /etc/yum.repos.d/mssql-release.repo
-            clean_metadata:
-              command: yum clean metadata
-            install_mssql_tools:
-              command: ACCEPT_EULA=y yum install mssql-tools -y && ln -s /opt/mssql-tools/bin/sqlcmd /usr/bin
+            01-get-latest-aws-cli-v2:
+              command: curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+            02-unzip:
+              command: unzip awscliv2.zip
+            03-update:
+              command: ./aws/install --bin-dir /usr/bin --install-dir /usr/local/aws-cli --update
+
 
         # Cfn-hup setting, it is to monitor the change of metadata.
         # When there is change in the contents of json file in the metadata section, cfn-hup will call cfn-init to restart the AmazonCloudWatchAgent.
@@ -352,11 +367,11 @@ Resources:
               command: /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
 
         BackupRestorePyramid:
-          packages:
-            yum:
-              # installed with EFS
-              # nfs-utils: []
-              postgresql: []
+          # packages:
+          #   yum:
+          #     # installed with EFS
+          #     # nfs-utils: []
+          #     postgresql: []
               
           files:
             /usr/src/pyramid/mnt-efs.sh:
@@ -537,20 +552,21 @@ Resources:
                 # ----------------------------------------------------------------------------
                 # Create mount point directory
                 # ----------------------------------------------------------------------------
-                # if the mountPoint directory does not exist
-                if [ ! -d "${mountPoint}" ] ; then
-                  mkdir -p "${mountPoint}"
-                else
-                  # fail if the mountPoint already exists
-                  echo "mountPoint directory ${mountPoint} already exists. exiting..."
-                  exit 1
+                if [ -d "${mountPoint}" ] ; then
+                  echo "mountPoint directory ${mountPoint} already existed. deleting..."
+                  # remove the repo dump from the
+                  umount /mnt/pyramid
+                  rm -rf /mnt/pyramid
                 fi
+
+                echo "creating mountPoint directory ${mountPoint}"
+                mkdir -p "${mountPoint}"
 
                 # create a mount target group if needed
                 create_mount_target $efsId $subnet $securityGroup $region
                 if [ $? -ne 0 ] ; then
-                echo "create_mount_target failed"
-                exit 1
+                  echo "create_mount_target failed"
+                  exit 1
                 fi
 
                 echo "About to mount $efsId to $mountPoint"
@@ -782,6 +798,92 @@ Resources:
 
               mode: '755'
 
+
+            /usr/src/pyramid/install_backup_restore_tools.sh:
+              content: |
+                #!/bin/bash
+                rdsType=$1
+                rdsAddress=$2
+                region=$3
+
+                set -o errexit
+                amazon-linux-extras enable epel
+                yum clean metadata
+
+                case "${rdsType}" in
+                PostgreSQL)
+                  if [[ -z "${rdsAddress}" ]] ; then
+                      echo "rdsAddress parameter missing"
+                      exit 1
+                  fi
+                  rdsServiceName=`echo $rdsAddress | cut -d '.' -f 1`
+
+                  # find the PostgreSQL version
+
+                  # cluster=`aws rds describe-db-clusters --db-cluster-identifier $rdsServiceName --region $region --output text  | grep DBCLUSTERS`
+
+                  if ! cluster=$(aws rds describe-db-clusters --db-cluster-identifier $rdsServiceName --region $region --output text | grep DBCLUSTERS) ;  then
+
+                    # no cluster by name:  $rdsServiceName 
+                    # try getting --db-instance-identifier
+
+                    db=`aws rds describe-db-instances --db-instance-identifier $rdsServiceName --region $region --output text  | grep DBINSTANCES`
+
+                    # DBINSTANCES     40      True    af-south-1a     1       rds-ca-2019-af-south-1          False
+                    # arn:aws:rds:af-south-1:999999:db:pyr-alone        db.r5.xlarge    pyr-alone       available       0       db-JKGFDGJSDFSK
+                    # True    postgres        13.4    False   YYYY-MM-DDT00:00:00.000Z        arn:aws:kms:af-south-1:99999:key/aaaa-aaa-aaa-aaa
+                    # YYYY-MM-DDT00:00:00.000Z    postgresql-license      userid 0       False False   07:09-07:39     mon:04:54-mon:05:24             False   True    standard
+
+                    # SQL Server - different values - the character set? we won't be getting SQL Server here
+                    # DBINSTANCES     40      True    af-south-1b     1       rds-ca-2019-af-south-1  SQL_Latin1_General_CP1_CI_AS    False
+                    # arn:aws:rds:af-south-1:9999999:db:instance-name    db.r5.xlarge    instance-name   available       0   db-GDHGSJDFGSJDG
+                    # True    sqlserver-se    15.00.4198.2.v1 False   YYYY-MM-DDT00:00:00.000Z        arn:aws:kms:af-south-1:9999999:key/aaa-aaa-aaa-aaa
+                    # YYY-MM-DDT00:00:00.000Z    license-included    admin    0       False   False   08:50-09:20     thu:10:05-thu:10:35             False   True    standard
+                    if [ $? -ne 0 ] ; then
+                      exit 1
+                    else
+                      postgresVersion=`echo $db | cut -d ' ' -f 19`
+                    fi
+                  else
+
+                    # DBCLUSTERS      stopped 1       35     YYY-MM-DDT00:00:00.000Z        False   False   arn:aws:rds:af-south-1:343272018671:cluster:pyr-prov   
+                    #  cluster-name        pyr-mktplace-aurora-prov-dbclusterparametergroup-1wzwylrwjvqtw 
+                    #  cluster-name-createrepositorydatabaseservice-1tiq7hmvkbhe9-dbsubnetgroup-iw1prxhh845r    
+                    #   cluster-VFYI6HJDFASDE      True   YYY-MM-DDT00:00:00.000Z       
+                    #   aaa-aaa-aaa-aaa.cluster-cml8vdx48kqh.af-south-1.rds.amazonaws.com      aurora-postgresql    provisioned     13.6    
+                    #   Z34PQSL3TPJI7P  False   False   arn:aws:kms:af-south-1:99999:key/aaa-aaa-aaa-aaa    2022-06-16T13:37:28.956Z        
+                    #   userid True    5432    04:59-05:29     tue:04:05-tue:04:35  aaa-aaa-aaa-aaa.cluster-ro-cml8vdx48kqh.af-south-1.rds.amazonaws.com   available       True
+
+                    postgresVersion=`echo $cluster | cut -d ' ' -f 19`
+                  fi
+
+                  # get major version and tool package name
+
+                  postgresMajorVersion=`echo $postgresVersion | cut -d '.' -f 1`
+                  postgresPackage="postgresql$postgresMajorVersion"
+
+                  echo "PostgreSQL version: $postgresVersion tool package: $postgresPackage"
+
+                  # install the version of the PostgreSQL tools for the database version
+
+                  amazon-linux-extras enable $postgresPackage
+                  yum clean metadata
+                  yum install postgresql -y
+                  ;;
+
+                MicrosoftSQLServer)
+                  curl -sS https://packages.microsoft.com/config/rhel/6/prod.repo > /etc/yum.repos.d/mssql-release.repo
+                  yum clean metadata
+                  ACCEPT_EULA=y yum install mssql-tools -y && ln -s /opt/mssql-tools/bin/sqlcmd /usr/bin
+                  ;;
+
+                *)
+                  echo "invalid database type <$rdsType>"
+                  exit 1
+                esac
+
+              mode: '755'
+
             /usr/src/pyramid/backup-to-s3.sh:
               content: |
                 #!/bin/bash
@@ -846,6 +948,8 @@ Resources:
                 if [[ -d /mnt/pyramid/imdb ]] ; then
                   aws s3 sync --no-progress /mnt/pyramid/imdb $s3Destination/imdb
                 fi
+
+                 /usr/src/pyramid/install_backup_restore_tools.sh $rdsType $rdsAddress $region
 
                 echo "backing up $rdsName from service $rdsAddress:$rdsPort"
 
@@ -1077,6 +1181,8 @@ Resources:
 
                 rdsPassword=`aws secretsmanager get-secret-value --secret-id /Pyramid/$baseStackName/RepositoryDatabasePassword --region $region --output text | cut -f 4`
 
+                 /usr/src/pyramid/install_backup_restore_tools.sh $rdsType $rdsAddress $region
+
                 case "${rdsType}" in
                 PostgreSQL)
                   echo "restoring PostgreSQL $dumpFile to database $rdsName on service $rdsAddress"
@@ -1098,6 +1204,7 @@ Resources:
                 EOF
                   fi
                   ;;
+
                 MicrosoftSQLServer)
 
                   /usr/src/pyramid/set-sqlserver-options-for-backup-restore.sh $baseStackName 
@@ -1107,8 +1214,6 @@ Resources:
 
                   restoreRequest=`sqlcmd -S tcp:$rdsAddress,$rdsPort -U $rdsUsername -P $rdsPassword -h -1 -s"~"\
                     -Q "exec msdb.dbo.rds_restore_database @restore_db_name='$rdsName', @s3_arn_to_restore_from='$s3SQLServerBackup', @type='FULL';"`
-                    
-                    # @kms_master_key_arn='arn:aws:kms:us-east-1:123456789012:key/AKIAIOSFODNN7EXAMPLE', 
 
                   if [ $? -ne 0 ] ; then
                     echo "rds_restore_database call failed"
@@ -1374,6 +1479,10 @@ Outputs:
             - - '/'
               - !GetAtt GetTimeThisTime.Time
           - ''
+
+  BackupLog:
+    Description: Backup/restore CloudWatch log
+    Value: !Sub "/pyramid/${BaseStackName}/${BackupRestoreInstance}-${BackupRestore}/cf-init"
 
   DependencyValue:
     Description: "An output to make a dependency"
