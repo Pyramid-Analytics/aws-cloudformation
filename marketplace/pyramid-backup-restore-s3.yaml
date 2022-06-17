@@ -119,8 +119,8 @@ Resources:
     Type: 'AWS::CloudFormation::WaitCondition'
     Properties:
       Handle: !Ref InstanceWaitHandle
-      # 15 mins
-      Timeout: '900'
+      # 25 mins
+      Timeout: '1500'
       Count: 1
 
   NowFunc:
@@ -819,9 +819,11 @@ Resources:
                   rdsServiceName=`echo $rdsAddress | cut -d '.' -f 1`
 
                   # find the PostgreSQL version
-                  cluster=`aws rds describe-db-clusters --db-cluster-identifier $rdsServiceName --region $region --output text  | grep DBCLUSTERS`
 
-                  if [ $? -ne 0 ] ; then
+                  # cluster=`aws rds describe-db-clusters --db-cluster-identifier $rdsServiceName --region $region --output text  | grep DBCLUSTERS`
+
+                  if ! cluster=$(aws rds describe-db-clusters --db-cluster-identifier $rdsServiceName --region $region --output text | grep DBCLUSTERS) ;  then
+
                     # no cluster by name:  $rdsServiceName 
                     # try getting --db-instance-identifier
 
@@ -840,7 +842,7 @@ Resources:
                     if [ $? -ne 0 ] ; then
                       exit 1
                     else
-                      postgresVersion=`echo $db | cut -d ' ' -f 16`
+                      postgresVersion=`echo $db | cut -d ' ' -f 19`
                     fi
                   else
 
@@ -848,9 +850,9 @@ Resources:
                     #  cluster-name        pyr-mktplace-aurora-prov-dbclusterparametergroup-1wzwylrwjvqtw 
                     #  cluster-name-createrepositorydatabaseservice-1tiq7hmvkbhe9-dbsubnetgroup-iw1prxhh845r    
                     #   cluster-VFYI6HJDFASDE      True   YYY-MM-DDT00:00:00.000Z       
-                    #   pyr-prov.cluster-cml8vdx48kqh.af-south-1.rds.amazonaws.com      aurora-postgresql    provisioned     13.6    
-                    #   Z34PQSL3TPJI7P  False   False   arn:aws:kms:af-south-1:343272018671:key/253fb660-bfce-4f1e-a637-f785775979bd    2022-06-16T13:37:28.956Z        
-                    #   pgadmin True    5432    04:59-05:29     tue:04:05-tue:04:35  pyr-prov.cluster-ro-cml8vdx48kqh.af-south-1.rds.amazonaws.com   available       True
+                    #   aaa-aaa-aaa-aaa.cluster-cml8vdx48kqh.af-south-1.rds.amazonaws.com      aurora-postgresql    provisioned     13.6    
+                    #   Z34PQSL3TPJI7P  False   False   arn:aws:kms:af-south-1:99999:key/aaa-aaa-aaa-aaa    2022-06-16T13:37:28.956Z        
+                    #   userid True    5432    04:59-05:29     tue:04:05-tue:04:35  aaa-aaa-aaa-aaa.cluster-ro-cml8vdx48kqh.af-south-1.rds.amazonaws.com   available       True
 
                     postgresVersion=`echo $cluster | cut -d ' ' -f 19`
                   fi
