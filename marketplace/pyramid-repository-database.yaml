@@ -148,22 +148,25 @@ Mappings:
   DBConfiguration:
     PostgreSQLAuroraServerless:
       engine: aurora-postgresql
+      engineMode: serverless
       licenseModel: no explicit license
       instanceClass: no instance type
       port: '5432'
     PostgreSQLAuroraProvisioned:
       engine: aurora-postgresql
+      engineMode: provisioned
       licenseModel: no explicit license
       instanceClass: db.r5.xlarge
       port: '5432'
     PostgreSQL:
       engine: postgres
+      engineMode: provisioned
       licenseModel: no explicit license
       instanceClass: db.r5.xlarge
       port: '5432'
     MicrosoftSQLServer:
       engine: sqlserver-se
-      version: no instance version
+      engineMode: provisioned
       licenseModel: license-included
       instanceClass: db.r5.xlarge
       port: '1433'
@@ -229,12 +232,20 @@ Resources:
               # find the default engine version of the given engine
               
               engine = event['ResourceProperties']['Engine']
+              engine_mode = event['ResourceProperties']['EngineMode']
               region = event['ResourceProperties']['Region']
               
-              client = boto3.client('rds')
+              client = boto3.client('rds', region_name=region)
               
               try:
-                  default_engine_version = client.describe_db_engine_versions(Engine=engine, DefaultOnly=True)
+                  default_engine_version = client.describe_db_engine_versions(Engine=engine, DefaultOnly=True, Filters=[
+                      {
+                          'Name': 'engine-mode',
+                          'Values': [
+                              engine_mode,
+                          ]
+                      },
+                  ])
               except ClientError as e:
                   print(e)
                   return {
@@ -267,6 +278,7 @@ Resources:
               status = cfnresponse.SUCCESS
               if event.get("RequestType") != "Delete":
                   answer = get_default_engine_version(event, context)
+                  print(answer)
                   if answer['Status'] == False:
                       status = cfnresponse.FAILED
               cfnresponse.send(event, context, status, responseData=answer)
@@ -306,6 +318,7 @@ Resources:
     Properties:
       ServiceToken: !GetAtt DBEngineVersion.Arn
       Engine: !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "engine"]
+      EngineMode: !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "engineMode"]
       Region: !Ref 'AWS::Region'
 
 
@@ -374,10 +387,8 @@ Resources:
         - !Ref RDSSecurityGroup
       DBClusterIdentifier: !Ref DBServiceName
       Engine: !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "engine"]
-      EngineMode: !If 
-        - PostgreSQLAuroraServerless
-        - serverless
-        - provisioned
+      EngineVersion: !GetAtt GetDBEngineVersion.EngineVersion
+      EngineMode: !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "engineMode"]
       MasterUserPassword: !Ref DBMasterUserPassword
       MasterUsername: !Ref DBMasterUsername
       Port: !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "port"]
@@ -400,6 +411,7 @@ Resources:
         - !Ref DBInstanceClass
         - !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "instanceClass"]
       Engine: !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "engine"]
+      EngineVersion: !GetAtt GetDBEngineVersion.EngineVersion
       LicenseModel: !If
         - SQLServer
         - !FindInMap [DBConfiguration, !Ref RDSDeploymentType, "licenseModel"]
