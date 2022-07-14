@@ -22,6 +22,10 @@ Metadata:
           default: File System
         Parameters:
           - ExistingFileSystemId
+      - Label:
+          default: Load Balancer
+        Parameters:
+          - ImplementLoadBalancer
     ParameterLabels:
       BaseStackName:
         default: Base Stack Name
@@ -41,6 +45,9 @@ Metadata:
         default: File upload size setting for nginx web server (MB)
       ExistingFileSystemId:
         default: Existing File system Id
+      ImplementLoadBalancer:
+        default: Implement Load Balancer
+
 Parameters:
   BaseStackName:
     Description: Base Stack Name
@@ -110,16 +117,16 @@ Parameters:
       - true
       - false
     ConstraintDescription: Required
-  HTTPAccessCIDR:
-    AllowedPattern: >-
-      ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/([0-9]|[1-2][0-9]|3[0-2]))$
-    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/x
-    Description: >-
-      Allowed CIDR block for HTTP and HTTPS traffic. Please set CIDR to
-      x.x.x.x/32 to allow one specific IP address access, 0.0.0.0/0 to allow all
-      IP addresses access, or another CIDR range.
-    Type: String
-    MinLength: '9'
+  # HTTPAccessCIDR:
+  #   AllowedPattern: >-
+  #     ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/([0-9]|[1-2][0-9]|3[0-2]))$
+  #   ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/x
+  #   Description: >-
+  #     Allowed CIDR block for HTTP and HTTPS traffic. Please set CIDR to
+  #     x.x.x.x/32 to allow one specific IP address access, 0.0.0.0/0 to allow all
+  #     IP addresses access, or another CIDR range.
+  #   Type: String
+  #   MinLength: '9'
   AllowSSHSecurityGroup:
     Description: >-
       Optional. ID of the security group (e.g. sg-0fec99734449e8888) to allow SSH access into the instance ie. Bastion
@@ -165,6 +172,16 @@ Parameters:
     AllowedPattern: '^$|fs-[a-f0-9]{8}'
     ConstraintDescription: >-
       Optional. EFS ID like fs-9554b161.
+  ImplementLoadBalancer:
+    Description: >-
+      Implement Load Balancer
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false
+      - trueHTTPS
+    ConstraintDescription: Required
 
 Rules:
   KeyPairsNotEmpty:
@@ -185,6 +202,19 @@ Conditions:
     - ''
   ReuseExistingFileSystem: !Not 
     - !Condition CreateFileSystem
+  DontImplementLoadBalancer: !Equals
+    - !Ref ImplementLoadBalancer
+    - false
+  ImplementLoadBalancer: !Not
+    - !Equals
+      - !Ref ImplementLoadBalancer
+      - false
+  ImplementHTTPOnlyonLB: !Equals
+    - !Ref ImplementLoadBalancer
+    - true
+  ImplementHTTPSonLB: !Equals
+    - !Ref ImplementLoadBalancer
+    - trueHTTPS
 
 Resources:
 
@@ -289,7 +319,30 @@ Resources:
   WebAccessSecurityGroup:
     Type: 'AWS::EC2::SecurityGroup'
     Properties:
-      GroupDescription: Allow HTTP and HTTPS access to the instance
+      GroupDescription: Allow HTTP access to the Pyramid Web server processes
+      VpcId: !Ref VPCID
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+
+  # Not implementing LB: allow direct access to instance
+  LoadBalancerToWebAccessIngress:
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Condition: DontImplementLoadBalancer
+    Properties:
+      GroupId: !GetAtt WebAccessSecurityGroup.GroupId
+      IpProtocol: tcp
+      FromPort: 80
+      ToPort: 80
+      CidrIp: !Ref HTTPAccessCIDR
+
+  LoadBalancerAccessSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Condition: ImplementLoadBalancer
+    Properties:
+      GroupDescription: Allow HTTP to the load balancer
       VpcId: !Ref VPCID
       SecurityGroupEgress:
         - IpProtocol: '-1'
@@ -301,10 +354,29 @@ Resources:
           FromPort: 80
           ToPort: 80
           CidrIp: !Ref HTTPAccessCIDR
-        - IpProtocol: tcp
-          FromPort: 443
-          ToPort: 443
-          CidrIp: !Ref HTTPAccessCIDR
+
+  HTTPSLoadBalancerIngress:
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Condition: ImplementHTTPSonLB
+    Properties:
+      Description: Allow HTTPS into Load Balancer
+      GroupId: !GetAtt LoadBalancerAccessSecurityGroup.GroupId
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      CidrIp: !Ref HTTPAccessCIDR
+
+  LoadBalancerToWebServerIngress:
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Condition: ImplementLoadBalancer
+    Properties:
+      Description: Allow Load Balancer traffic into Pyramid Web Server
+      GroupId: !GetAtt WebAccessSecurityGroup.GroupId
+      IpProtocol: tcp
+      FromPort: 80
+      ToPort: 80
+      SourceSecurityGroupId: !Ref LoadBalancerAccessSecurityGroup
+
 
   PyramidProcessesSecurityGroup:
     Type: 'AWS::EC2::SecurityGroup'
@@ -316,6 +388,7 @@ Resources:
           FromPort: -1
           ToPort: -1
           CidrIp: 0.0.0.0/0
+  
   SSHIngress:
     Type: 'AWS::EC2::SecurityGroupIngress'
     Condition: AllowSSH
@@ -325,6 +398,7 @@ Resources:
       FromPort: 22
       ToPort: 22
       SourceSecurityGroupId: !Ref AllowSSHSecurityGroup
+
   PyramidProcessesSecurityGroupInternalIngress:
     Type: 'AWS::EC2::SecurityGroupIngress'
     Properties:
@@ -333,6 +407,7 @@ Resources:
       FromPort: 12100
       ToPort: 12200
       SourceSecurityGroupId: !GetAtt PyramidProcessesSecurityGroup.GroupId
+
   PyramidProcessesSecurityGroupInternalIngressForWebServer:
     Type: 'AWS::EC2::SecurityGroupIngress'
     Properties:
@@ -713,6 +788,17 @@ Resources:
       Type: String
       Value: !Ref WebAccessSecurityGroup
       Description: Security group for web access to instances
+      Tags:
+        StackName: !Sub '${BaseStackName}'
+        Vendor: Pyramid
+
+  LoadBalancerAccessSecurityGroupSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/Pyramid/${BaseStackName}/LoadBalancerAccessSecurityGroup'
+      Type: String
+      Value: !Ref LoadBalancerAccessSecurityGroup
+      Description: Security group for web access to load balancer
       Tags:
         StackName: !Sub '${BaseStackName}'
         Vendor: Pyramid
