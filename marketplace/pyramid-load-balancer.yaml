@@ -351,12 +351,13 @@ Outputs:
         - !GetAtt 
           - ElasticLoadBalancer
           - DNSName
-    Description: Pyramid Public URL
-  PublicDNSName:
+    Description: Pyramid Public URL through load balancer
+  PrivateDNSName:
     Value: !GetAtt 
           - ElasticLoadBalancer
           - DNSName
-    Description: Instance Public DNS name
+    Description: Load balancer private DNS name
   VPC:
     Value: !Ref VPCID
     Description: VPC for deployment
+

@@ -30,13 +30,6 @@ Metadata:
           - RDSPassword
           - RDSName
       - Label:
-          default: New Load Balancer
-        Parameters:
-          - CreateLoadBalancer
-          - LoadBalancerSubnets
-          - LoadBalancerInternetFacing
-          - CertificateArn
-      - Label:
           default: Pyramid S3 backup to restore from
         Parameters:
           - BackupS3Bucket
@@ -75,14 +68,6 @@ Metadata:
         default: Initial Pyramid user name
       InitialUserPassword:
         default: Initial Pyramid User password
-      CreateLoadBalancer:
-        default: Create Load Balancer?
-      LoadBalancerSubnets: 
-        default: Subnets for Load Balancer
-      LoadBalancerInternetFacing:
-        default: Is the load balancer exposed to the public internet?
-      CertificateArn:
-        default: ARN for SSL certificate
       BackupS3Bucket:
         default: S3 bucket containing a Pyramid backup
       BackupS3Folder:
@@ -245,28 +230,6 @@ Parameters:
     Default: 200
     MinValue: 200
     ConstraintDescription: Must be more than 200 (MB).
-  CreateLoadBalancer:
-    Description: Create Load Balancer?
-    Type: String
-    Default: false
-    AllowedValues:
-      - true
-      - false
-  LoadBalancerSubnets: 
-    Description: Subnets for Load Balancer
-    Type: 'List<AWS::EC2::Subnet::Id>'
-  LoadBalancerInternetFacing:
-    Description: >-
-      Load Balancer is exposed to public Internet
-    Type: String
-    Default: true
-    AllowedValues:
-      - true
-      - false
-  CertificateArn:
-    Description: 'Certificate Manager ARN for SSL certificate, of the form: arn:aws:acm:<region>:<AWS account id>:certificate/<certificate id GUID>'
-    Type: String
-    AllowedPattern: '^$|^arn:aws:acm:[a-z]{2}-[a-z]{4,}-\d{1,}:\d{12}:certificate/[-a-z0-9]{36}'
 
   BackupS3Bucket:
     Description: >-
@@ -372,15 +335,6 @@ Conditions:
     - !Equals 
       - !Ref BackupS3Bucket
       - ''
-  CreateLB: !Equals
-    - !Ref CreateLoadBalancer
-    - 'true'
-  ImplementHTTPS: !And
-    - !Condition CreateLB
-    - !Not
-      - !Equals
-        - !Ref CertificateArn
-        - ''
 
 Resources:
 
@@ -398,13 +352,7 @@ Resources:
         InitialUsername: !Ref InitialUsername
         InitialUserPassword: !Ref InitialUserPassword
         FileUploadSize: !Ref FileUploadSize
-        ImplementLoadBalancer: !If
-          - CreateLB
-          - !If
-            - ImplementHTTPS
-            - trueHTTPS
-            - true 
-          - false
+        ImplementLoadBalancer: false
 
   CreateRepositoryDatabaseService:
     Type: 'AWS::CloudFormation::Stack'
@@ -591,22 +539,6 @@ Resources:
           - RestoreFromBackup
           - !GetAtt RestoreBackup.Outputs.BackupBucket
           - No backup
-
-  LoadBalancer:
-    Type: 'AWS::CloudFormation::Stack'
-    Condition: CreateLB
-    Properties:
-      TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-24-lb/pyramid-load-balancer.yaml
-      Parameters:
-        BaseStackName: !Ref AWS::StackName
-        WebInstance: !GetAtt CentralInstance.Outputs.InstanceId
-        VPCID: !Ref VPCID
-        LoadBalancerSubnetIds: !Join 
-          - ','
-          - !Ref LoadBalancerSubnets
-        LoadBalancerInternetFacing: !Ref LoadBalancerInternetFacing
-        CertificateArn: !Ref CertificateArn
 
 Outputs:
   PyramidPublicURL:

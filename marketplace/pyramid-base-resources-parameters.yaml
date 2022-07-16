@@ -793,6 +793,7 @@ Resources:
         Vendor: Pyramid
 
   LoadBalancerAccessSecurityGroupSSM:
+    Condition: ImplementLoadBalancer
     Type: AWS::SSM::Parameter
     Properties:
       Name: !Sub '/Pyramid/${BaseStackName}/LoadBalancerAccessSecurityGroup'
