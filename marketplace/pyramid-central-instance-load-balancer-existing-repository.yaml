@@ -14,8 +14,6 @@ Metadata:
           - Subnet
           - InstanceType
           - KeyPairName
-          - AssignPublicIP
-          - HTTPAccessCIDR
           - AllowSSHSecurityGroup
           - InitialUsername
           - InitialUserPassword
@@ -33,6 +31,7 @@ Metadata:
       - Label:
           default: New Load Balancer
         Parameters:
+          - HTTPAccessCIDR
           - LoadBalancerSubnets
           - LoadBalancerInternetFacing
           - CertificateArn
@@ -52,8 +51,6 @@ Metadata:
         default: Subnet for Pyramid instance
       InstanceType:
         default: Instance type
-      AssignPublicIP:
-        default: Assign public IP and domain name
       HTTPAccessCIDR:
         default: HTTP/HTTPS CIDR
       AllowSSHSecurityGroup:
@@ -138,15 +135,6 @@ Parameters:
       - c5n.12xlarge
     Default: c5.4xlarge
     ConstraintDescription: Must be a valid instance type for region.
-  AssignPublicIP:
-    Description: >-
-      Assign public IP address and domain.
-    Type: String
-    Default: true
-    AllowedValues:
-      - true
-      - false
-    ConstraintDescription: Required
   HTTPAccessCIDR:
     AllowedPattern: >-
       ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/([0-9]|[1-2][0-9]|3[0-2]))$
@@ -377,9 +365,6 @@ Conditions:
   DatabaseTypeIsMicrosoft: !Equals
     - !Ref RDSDeploymentType
     - 'MicrosoftSQLServer'
-  PublicIP: !Equals
-    - !Ref AssignPublicIP
-    - 'true'
   RestoreFromBackup: !Not 
     - !Equals 
       - !Ref BackupS3Bucket
@@ -561,7 +546,7 @@ Resources:
             - !GetAtt BaseResourcesParameters.Outputs.PyramidProcessesSecurityGroup
             - !GetAtt BaseResourcesParameters.Outputs.MountTargetSecurityGroup
         Subnet: !Ref Subnet
-        AssignPublicIP: !Ref AssignPublicIP
+        AssignPublicIP: false
         InstallProxy: true
         RepositoryType: !If
           - DontInitializeRepository
