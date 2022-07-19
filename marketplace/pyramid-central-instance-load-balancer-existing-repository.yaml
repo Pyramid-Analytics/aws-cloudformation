@@ -1,9 +1,9 @@
 AWSTemplateFormatVersion: 2010-09-09
 Description: >-
-  Deploys a single instance of Pyramid 2020 with all services and a new Aurora
-  Postgres cluster for the repository database. Option to restore from a Pyramid backup.
-  To be deployed in a public subnet, as the Pyramid web server is available on port 80.
-  You will be billed for the AWS resources used if you create a stack from this template. 
+  Deploys a single instance of Pyramid 2020 with all services and a new RDS 
+  instance for the repository database. To be deployed in a public
+  subnet, as the Pyramid web server is available on port 80. You will be billed
+  for the AWS resources used if you create a stack from this template. 
 Metadata:
   'AWS::CloudFormation::Interface':
     ParameterGroups:
@@ -21,14 +21,15 @@ Metadata:
           - InitialUserPassword
           - FileUploadSize
       - Label:
-          default: New Repository Database Service
+          default: Existing Repository Database Service and File system
         Parameters:
           - RDSDeploymentType
-          - RDSServiceName
-          - NewRDSSubnets
-          - RDSUser
+          - RDSAddress
+          - RDSPort
+          - RDSUsername
           - RDSPassword
           - RDSName
+          - RDSSecurityGroup
       - Label:
           default: New Load Balancer
         Parameters:
@@ -36,10 +37,12 @@ Metadata:
           - LoadBalancerInternetFacing
           - CertificateArn
       - Label:
-          default: Pyramid S3 backup to restore from
+          default: Repository and file system initialization
         Parameters:
           - BackupS3Bucket
           - BackupS3Folder
+          - InitializeRepository
+          - ExistingFileSystemId
     ParameterLabels:
       KeyPairName:
         default: Key pair name
@@ -56,24 +59,29 @@ Metadata:
       AllowSSHSecurityGroup:
         default: SSH Security Group ID
       RDSDeploymentType:
-        default: RDS Deployment type
-      RDSServiceName:
-        default: New RDS service name
-      NewRDSSubnets:
-        default: >-
-          New RDS service subnets
-      RDSUser:
+        default: Database type
+      RDSAddress:
+        default: Existing RDS domain name
+      RDSPort:
+        default: RDS database port
+      RDSUsername:
         default: RDS database user name
       RDSPassword:
         default: RDS database password
       RDSName:
         default: Repository database name
-      FileUploadSize:
-        default: File upload size setting for nginx web server (MB)
+      RDSSecurityGroup:
+        default: Security group for access to Repository database service
+      ExistingFileSystemId:
+        default: Existing File system Id if not initializing or restoring
+      InitializeRepository:
+        default: Initialize Repository database?
       InitialUsername:
         default: Initial Pyramid user name
       InitialUserPassword:
         default: Initial Pyramid User password
+      FileUploadSize:
+        default: File upload size setting for nginx web server (MB)
       LoadBalancerSubnets: 
         default: Subnets for Load Balancer
       LoadBalancerInternetFacing:
@@ -158,29 +166,22 @@ Parameters:
     MaxLength: '128'
     AllowedPattern: '^$|sg-[a-f0-9]{6,17}$'
   RDSDeploymentType:
-    Description: RDS deployment type
+    Description: Database type
     Type: String
-    Default: PostgreSQLAuroraServerless
+    Default: PostgreSQL
     AllowedValues:
-      - PostgreSQLAuroraServerless
-      - PostgreSQLAuroraProvisioned
       - PostgreSQL
       - MicrosoftSQLServer
-  RDSServiceName:
+  RDSAddress:
     Description: >-
-      Name of the new RDS service (ie. pyramid)
+      Domain name of exisitng RDS service (ie. pyramid.cluster-cfave2vnma46.us-east-1.rds.amazonaws.com)
     Type: String
     MinLength: '5'
     MaxLength: '128'
-    AllowedPattern: '[a-zA-Z][-a-zA-Z0-9]*'
+    AllowedPattern: '[a-zA-Z][-_a-zA-Z0-9\.]*'
     ConstraintDescription: >-
-      Min 5 characters. First character must be a letter. Must contain only letters, digits or '-'.
-  NewRDSSubnets:
-    Description: Subnets to deploy the new RDS cluster into.  At least 2 must be entered, even when using existing
-          service.
-    Type: 'List<AWS::EC2::Subnet::Id>'
-    ConstraintDescription: Required
-  RDSUser:
+      Min 5 characters. First character must be a letter. Must contain only letters, digits, '.', '-' or underscores.
+  RDSUsername:
     Description: >-
       Master user name for the RDS database. Min 5 characters. It can contain
       only alphanumeric characters and underscores.
@@ -203,6 +204,11 @@ Parameters:
     ConstraintDescription: >-
       Min 8 characters. Can contain only alphanumeric characters, minus and
       underscores.
+  RDSPort:
+    Description: RDS Port. Standards are 5432 for PostgreSQL and 1433 for Microsft SQL Server.
+    Type: Number
+    MinValue: '1024'
+    ConstraintDescription: Port number must be higher than 1024
   RDSName:
     Description: Repository database name in the RDS service.
     Type: String
@@ -213,6 +219,24 @@ Parameters:
     ConstraintDescription: >-
       Min 6 characters. Must begin with a letter and contain only alphanumeric
       characters and underscores.
+  ExistingFileSystemId:
+    Description: >-
+      For reusing an existing file system for Pyramid combined with an existing repository database.
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|fs-[a-f0-9]{8}'
+    ConstraintDescription: >-
+      Optional. EFS ID like fs-9554b161.
+  InitializeRepository:
+    Description: If not restoring from backup, initialize Pyramid Repository database name. false assumes database name exists
+    Type: String
+    Default: true
+    AllowedValues:
+      - true
+      - false
+  RDSSecurityGroup:
+    Description: Security Group for access into RDS service.
+    Type: 'AWS::EC2::SecurityGroup::Id'
   InitialUsername:
     ConstraintDescription: >-
       Min 5 characters. Must begin with a letter and contain only alphanumeric
@@ -257,7 +281,6 @@ Parameters:
     Description: 'Certificate Manager ARN for SSL certificate, of the form: arn:aws:acm:<region>:<AWS account id>:certificate/<certificate id GUID>'
     Type: String
     AllowedPattern: '^$|^arn:aws:acm:[a-z]{2}-[a-z]{4,}-\d{1,}:\d{12}:certificate/[-a-z0-9]{36}'
-
   BackupS3Bucket:
     Description: >-
       S3 bucket to a Pyramid backup
@@ -273,7 +296,7 @@ Parameters:
     Type: String
     Default: ''
     MaxLength: '1000'
-    AllowedPattern: '^$|^(?=^.{5,1000}$)[a-zA-Z0-9][-_a-zA-Z0-9/\=()+]*$'
+    AllowedPattern: '^$|^(?=^.{5,1000}$)[a-zA-Z0-9][-_a-zA-Z0-9\/\=()+]*$'
     ConstraintDescription: >-
       Optional. Otherwise min 5 characters. First character must be a letter or number. Must contain only letters, digits, '/', '-', '+', '_', '=' or parentheses.
 
@@ -325,7 +348,6 @@ Mappings:
     eu-south-1:
       '64': ami-015a7108facad1be3
 
-
 Rules:
   SubnetsNotEmpty:
     Assertions:
@@ -362,10 +384,16 @@ Conditions:
     - !Equals 
       - !Ref BackupS3Bucket
       - ''
+  DontInitializeRepository: !Or
+    - !Condition RestoreFromBackup
+    - !Equals
+      - !Ref InitializeRepository
+      - 'false'
   ImplementHTTPS: !Not
     - !Equals
       - !Ref CertificateArn
       - ''
+
 
 Resources:
 
@@ -382,41 +410,23 @@ Resources:
         AllowSSHSecurityGroup: !Ref AllowSSHSecurityGroup
         InitialUsername: !Ref InitialUsername
         InitialUserPassword: !Ref InitialUserPassword
+        ExistingFileSystemId: !If
+          - DontInitializeRepository
+          - !Ref ExistingFileSystemId
+          - !Ref AWS::NoValue
         FileUploadSize: !Ref FileUploadSize
         ImplementLoadBalancer: !If
           - ImplementHTTPS
           - trueHTTPS
           - true
 
-  CreateRepositoryDatabaseService:
-    Type: 'AWS::CloudFormation::Stack'
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
-    DependsOn: BaseResourcesParameters
-    Properties:
-      TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-24-lb/pyramid-repository-database.yaml
-      Parameters:
-        BaseStackName: !Ref AWS::StackName
-        RDSDeploymentType: !Ref RDSDeploymentType
-        VPCID: !Ref VPCID
-        SubnetIds: !Join 
-          - ','
-          - !Ref NewRDSSubnets
-        DBServiceName: !Ref RDSServiceName
-        DBMasterUsername: !Ref RDSUser
-        DBMasterUserPassword: !Ref RDSPassword
-
   RepositoryDatabaseTypeSSM:
     Type: AWS::SSM::Parameter
-    DependsOn: CreateRepositoryDatabaseService
+    DependsOn: BaseResourcesParameters
     Properties:
       Name: !Sub '/Pyramid/${AWS::StackName}/RepositoryDatabaseType'
       Type: String
-      Value: !If
-        - DatabaseTypeIsMicrosoft
-        - MicrosoftSQLServer
-        - PostgreSQL
+      Value: !Ref RDSDeploymentType
       Description: Database type for repository in RDS
       Tags:
         StackName: !Sub '${AWS::StackName}'
@@ -424,11 +434,11 @@ Resources:
 
   RepositoryDatabaseServiceNameSSM:
     Type: AWS::SSM::Parameter
-    DependsOn: CreateRepositoryDatabaseService
+    DependsOn: BaseResourcesParameters
     Properties:
       Name: !Sub '/Pyramid/${AWS::StackName}/RepositoryDatabaseServiceName'
       Type: String
-      Value: !Ref RDSServiceName
+      Value:  !Select [ 0, !Split [ ".", !Ref RDSAddress ]]
       Description: RDS service name of repository
       Tags:
         StackName: !Sub '${AWS::StackName}'
@@ -439,7 +449,7 @@ Resources:
     Properties:
       Name: !Sub '/Pyramid/${AWS::StackName}/RepositoryDatabaseAddress'
       Type: String
-      Value: !GetAtt CreateRepositoryDatabaseService.Outputs.RDSEndPointAddress
+      Value: !Ref RDSAddress
       Description: RDS domain of repository
       Tags:
         StackName: !Sub '${AWS::StackName}'
@@ -450,7 +460,7 @@ Resources:
     Properties:
       Name: !Sub '/Pyramid/${AWS::StackName}/RepositoryDatabasePort'
       Type: String
-      Value: !GetAtt CreateRepositoryDatabaseService.Outputs.RDSEndPointPort
+      Value: !Ref RDSPort
       Description: Port for repository in RDS
       Tags:
         StackName: !Sub '${AWS::StackName}'
@@ -461,7 +471,7 @@ Resources:
     Properties:
       Name: !Sub '/Pyramid/${AWS::StackName}/RepositoryDatabaseUsername'
       Type: String
-      Value: !GetAtt CreateRepositoryDatabaseService.Outputs.DBMasterUsername
+      Value: !Ref RDSUsername
       Description: User name for repository in RDS
       Tags:
         StackName: !Sub '${AWS::StackName}'
@@ -469,7 +479,7 @@ Resources:
 
   RDSPasswordSecret:
     Type: 'AWS::SecretsManager::Secret'
-    DependsOn: CreateRepositoryDatabaseService
+    DependsOn: BaseResourcesParameters
     Properties:
       Name: !Sub '/Pyramid/${AWS::StackName}/RepositoryDatabasePassword'
       Description: Password for RDS service
@@ -495,7 +505,7 @@ Resources:
 
   RepositoryDatabaseNameSSM:
     Type: AWS::SSM::Parameter
-    DependsOn: CreateRepositoryDatabaseService
+    DependsOn: BaseResourcesParameters
     Properties:
       Name: !Sub '/Pyramid/${AWS::StackName}/RepositoryDatabaseName'
       Type: String
@@ -505,24 +515,13 @@ Resources:
         StackName: !Sub '${AWS::StackName}'
         Vendor: Pyramid
 
-  RepositoryDatabaseEncryptionKeyARNSSM:
-    Type: AWS::SSM::Parameter
-    Properties:
-      Name: !Sub '/Pyramid/${AWS::StackName}/RepositoryDatabaseEncryptionKeyARN'
-      Type: String
-      Value: !GetAtt CreateRepositoryDatabaseService.Outputs.RDSEncryptionKeyARN
-      Description: Encryption key for Repository RDS Service
-      Tags:
-        StackName: !Sub '${AWS::StackName}'
-        Vendor: Pyramid
-
   PyramidProcessesSecurityGroupRepositoryAccess:
     Type: 'AWS::EC2::SecurityGroupIngress'
     Properties:
-      GroupId: !GetAtt CreateRepositoryDatabaseService.Outputs.RDSSecurityGroupId
+      GroupId: !Ref RDSSecurityGroup
       IpProtocol: tcp
-      FromPort: !GetAtt CreateRepositoryDatabaseService.Outputs.RDSEndPointPort
-      ToPort: !GetAtt CreateRepositoryDatabaseService.Outputs.RDSEndPointPort
+      FromPort: !Ref RDSPort
+      ToPort: !Ref RDSPort
       SourceSecurityGroupId: !GetAtt BaseResourcesParameters.Outputs.PyramidProcessesSecurityGroupId
 
   RestoreBackup:
@@ -565,7 +564,7 @@ Resources:
         AssignPublicIP: !Ref AssignPublicIP
         InstallProxy: true
         RepositoryType: !If
-          - RestoreFromBackup
+          - DontInitializeRepository
           - reuseremote
           - newremote
         #  Unused parameter. Only for dependency management in calling CFTs
@@ -574,6 +573,7 @@ Resources:
           - !GetAtt RestoreBackup.Outputs.BackupBucket
           - No backup
 
+
   LoadBalancer:
     Type: 'AWS::CloudFormation::Stack'
     Properties:
@@ -581,9 +581,9 @@ Resources:
         https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-24-lb/pyramid-load-balancer.yaml
       Parameters:
         BaseStackName: !Ref AWS::StackName
-        WebInstance: !GetAtt CentralInstance.Outputs.InstanceId
+        WebInstance: !Ref CentralInstance
         VPCID: !Ref VPCID
-        LoadBalancerSubnets: !Join 
+        LoadBalancerSubnetIds: !Join 
           - ','
           - !Ref LoadBalancerSubnets
         LoadBalancerInternetFacing: !Ref LoadBalancerInternetFacing
@@ -592,6 +592,7 @@ Resources:
           - !Ref CertificateArn
           - ''
 
+
 Outputs:
   PyramidPublicURL:
     Value: !GetAtt LoadBalancer.Outputs.PyramidPublicURL
@@ -599,13 +600,14 @@ Outputs:
   PrivateDNSName:
     Value: !GetAtt LoadBalancer.Outputs.PrivateDNSName
     Description: Load balancer private DNS name
+
   VPC:
     Value: !Ref VPCID
     Description: VPC for deployment
   KeyPairName:
     Value: !Ref KeyPairName
     Description: Key Pair for instances
-
+    
   PyramidRole:
     Value: !GetAtt BaseResourcesParameters.Outputs.PyramidRole
     Description: IAM Role for instances launched from this stack
@@ -634,16 +636,16 @@ Outputs:
       - PostgreSQL
     Description: RDS Database type
   RepositoryDatabaseAddress:
-    Value: !GetAtt CreateRepositoryDatabaseService.Outputs.RDSEndPointAddress
+    Value: !Ref RDSAddress
     Description: Repository database address
   RepositoryDatabasePort:
-    Value: !GetAtt CreateRepositoryDatabaseService.Outputs.RDSEndPointPort
+    Value: !Ref RDSPort
     Description: Repository database port
   RepositoryDatabaseServiceName:
-    Value: !Ref RDSServiceName
+    Value: !Select [ 0, !Split [ ".", !Ref RDSAddress ]]
     Description: Repository database RDS Service name
   RepositoryDatabaseUsername:
-    Value: !Ref RDSUser
+    Value: !Ref RDSUsername
     Description: Repository database user name
   RepositoryDatabasePasswordARN:
     Value: !Ref RDSPasswordSecret
@@ -652,8 +654,5 @@ Outputs:
     Value: !Ref RDSName
     Description: Repository database schema name
   RDSSecurityGroup:
-    Value: !GetAtt CreateRepositoryDatabaseService.Outputs.RDSSecurityGroup
-    Description: Security Group access to repository
-  RDSEncryptionKeyARN:
-    Value: !GetAtt CreateRepositoryDatabaseService.Outputs.RDSEncryptionKeyARN
-    Description: Repository database encryption key ARN
+    Value: !Ref RDSSecurityGroup
+    Description: Security Group access to repository database
