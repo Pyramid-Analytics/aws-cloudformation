@@ -368,7 +368,7 @@ Resources:
     Type: 'AWS::CloudFormation::Stack'
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-24/pyramid-autoscale-instances.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-24-lb/pyramid-autoscale-instances.yaml
       Parameters:
         BaseStackName: !Ref BaseStackName
         PyramidProcess: EverythingExceptInMemoryDB

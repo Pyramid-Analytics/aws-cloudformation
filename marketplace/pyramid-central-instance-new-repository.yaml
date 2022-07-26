@@ -230,6 +230,7 @@ Parameters:
     Default: 200
     MinValue: 200
     ConstraintDescription: Must be more than 200 (MB).
+
   BackupS3Bucket:
     Description: >-
       S3 bucket to a Pyramid backup
@@ -341,7 +342,7 @@ Resources:
     Type: 'AWS::CloudFormation::Stack'
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-24/pyramid-base-resources-parameters.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-24-lb/pyramid-base-resources-parameters.yaml
       Parameters:
         BaseStackName: !Ref AWS::StackName
         VPCID: !Ref VPCID
@@ -351,6 +352,7 @@ Resources:
         InitialUsername: !Ref InitialUsername
         InitialUserPassword: !Ref InitialUserPassword
         FileUploadSize: !Ref FileUploadSize
+        ImplementLoadBalancer: false
 
   CreateRepositoryDatabaseService:
     Type: 'AWS::CloudFormation::Stack'
@@ -359,7 +361,7 @@ Resources:
     DependsOn: BaseResourcesParameters
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-24/pyramid-repository-database.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-24-lb/pyramid-repository-database.yaml
       Parameters:
         BaseStackName: !Ref AWS::StackName
         RDSDeploymentType: !Ref RDSDeploymentType
@@ -496,7 +498,7 @@ Resources:
       - PyramidProcessesSecurityGroupRepositoryAccess
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-24/pyramid-backup-restore-s3.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-24-lb/pyramid-backup-restore-s3.yaml
       Parameters:
         BackupRestore: restore
         BaseStackName: !Ref AWS::StackName
@@ -510,7 +512,7 @@ Resources:
       - PyramidProcessesSecurityGroupRepositoryAccess
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-24/pyramid-single-instance.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-24-lb/pyramid-single-instance.yaml
       Parameters:
         AMIID: !FindInMap 
           - AWSAMIRegionMap

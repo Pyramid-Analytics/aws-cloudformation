@@ -250,12 +250,19 @@ Conditions:
     - !Equals
       - !Ref AssignPublicIP
       - 'true'
+  LoadBalancer:  !And
+    - !Condition WebAccess
+    - !Not
+      - !Equals
+        - !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/LoadBalancer:1}}'
+        - ''
+
 
 Resources:
   LaunchInstance:
     Type: 'AWS::CloudFormation::Stack'
     Properties:
-      TemplateURL: https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-24/pyramid-single-instance.yaml
+      TemplateURL: https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-24-lb/pyramid-single-instance.yaml
       Parameters:
         BaseStackName: !Ref BaseStackName
         AMIID: !FindInMap 
@@ -286,6 +293,14 @@ Resources:
 
         RepositoryType: currentremote
 
+  ManageTargets:
+    Type: 'Custom::ManageTargetsLambda'
+    Condition: LoadBalancer
+    Properties:
+      ServiceToken: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/ManageTargetsLambdaArn:1}}'
+      TargetGroupArn: !Sub '{{resolve:ssm:/Pyramid/${BaseStackName}/WebTargetGroup:1}}'
+      InstanceId: !GetAtt LaunchInstance.Outputs.InstanceId
+      
 Outputs:
   PyramidPublicURL:
     Value: !If

@@ -854,7 +854,7 @@ Resources:
                     #   Z34PQSL3TPJI7P  False   False   arn:aws:kms:af-south-1:99999:key/aaa-aaa-aaa-aaa    2022-06-16T13:37:28.956Z        
                     #   userid True    5432    04:59-05:29     tue:04:05-tue:04:35  aaa-aaa-aaa-aaa.cluster-ro-cml8vdx48kqh.af-south-1.rds.amazonaws.com   available       True
 
-                    postgresVersion=`echo $cluster | cut -d ' ' -f 19`
+                    postgresVersion=`echo $cluster | cut -d ' ' -f 20`
                   fi
 
                   # get major version and tool package name

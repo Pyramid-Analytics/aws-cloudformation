@@ -14,8 +14,6 @@ Metadata:
           - Subnet
           - InstanceType
           - KeyPairName
-          - AssignPublicIP
-          - HTTPAccessCIDR
           - AllowSSHSecurityGroup
           - InitialUsername
           - InitialUserPassword
@@ -30,6 +28,13 @@ Metadata:
           - RDSPassword
           - RDSName
           - RDSSecurityGroup
+      - Label:
+          default: New Load Balancer
+        Parameters:
+          - HTTPAccessCIDR
+          - LoadBalancerSubnets
+          - LoadBalancerInternetFacing
+          - CertificateArn
       - Label:
           default: Repository and file system initialization
         Parameters:
@@ -46,8 +51,6 @@ Metadata:
         default: Subnet for Pyramid instance
       InstanceType:
         default: Instance type
-      AssignPublicIP:
-        default: Assign public IP and domain name
       HTTPAccessCIDR:
         default: HTTP/HTTPS CIDR
       AllowSSHSecurityGroup:
@@ -76,6 +79,12 @@ Metadata:
         default: Initial Pyramid User password
       FileUploadSize:
         default: File upload size setting for nginx web server (MB)
+      LoadBalancerSubnets: 
+        default: Subnets for Load Balancer
+      LoadBalancerInternetFacing:
+        default: Is the load balancer exposed to the public internet?
+      CertificateArn:
+        default: ARN for SSL certificate
       BackupS3Bucket:
         default: S3 bucket containing a Pyramid backup
       BackupS3Folder:
@@ -126,15 +135,6 @@ Parameters:
       - c5n.12xlarge
     Default: c5.4xlarge
     ConstraintDescription: Must be a valid instance type for region.
-  AssignPublicIP:
-    Description: >-
-      Assign public IP address and domain.
-    Type: String
-    Default: true
-    AllowedValues:
-      - true
-      - false
-    ConstraintDescription: Required
   HTTPAccessCIDR:
     AllowedPattern: >-
       ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/([0-9]|[1-2][0-9]|3[0-2]))$
@@ -254,6 +254,21 @@ Parameters:
     Default: 200
     MinValue: 200
     ConstraintDescription: Must be more than 200 (MB).
+  LoadBalancerSubnets: 
+    Description: Subnets for Load Balancer
+    Type: 'List<AWS::EC2::Subnet::Id>'
+  LoadBalancerInternetFacing:
+    Description: >-
+      Load Balancer is exposed to public Internet
+    Type: String
+    Default: true
+    AllowedValues:
+      - true
+      - false
+  CertificateArn:
+    Description: 'Certificate Manager ARN for SSL certificate, of the form: arn:aws:acm:<region>:<AWS account id>:certificate/<certificate id GUID>'
+    Type: String
+    AllowedPattern: '^$|^arn:aws:acm:[a-z]{2}-[a-z]{4,}-\d{1,}:\d{12}:certificate/[-a-z0-9]{36}'
   BackupS3Bucket:
     Description: >-
       S3 bucket to a Pyramid backup
@@ -350,9 +365,6 @@ Conditions:
   DatabaseTypeIsMicrosoft: !Equals
     - !Ref RDSDeploymentType
     - 'MicrosoftSQLServer'
-  PublicIP: !Equals
-    - !Ref AssignPublicIP
-    - 'true'
   RestoreFromBackup: !Not 
     - !Equals 
       - !Ref BackupS3Bucket
@@ -362,6 +374,10 @@ Conditions:
     - !Equals
       - !Ref InitializeRepository
       - 'false'
+  ImplementHTTPS: !Not
+    - !Equals
+      - !Ref CertificateArn
+      - ''
 
 
 Resources:
@@ -384,6 +400,10 @@ Resources:
           - !Ref ExistingFileSystemId
           - !Ref AWS::NoValue
         FileUploadSize: !Ref FileUploadSize
+        ImplementLoadBalancer: !If
+          - ImplementHTTPS
+          - trueHTTPS
+          - true
 
   RepositoryDatabaseTypeSSM:
     Type: AWS::SSM::Parameter
@@ -526,7 +546,7 @@ Resources:
             - !GetAtt BaseResourcesParameters.Outputs.PyramidProcessesSecurityGroup
             - !GetAtt BaseResourcesParameters.Outputs.MountTargetSecurityGroup
         Subnet: !Ref Subnet
-        AssignPublicIP: !Ref AssignPublicIP
+        AssignPublicIP: false
         InstallProxy: true
         RepositoryType: !If
           - DontInitializeRepository
@@ -538,22 +558,33 @@ Resources:
           - !GetAtt RestoreBackup.Outputs.BackupBucket
           - No backup
 
+
+  LoadBalancer:
+    Type: 'AWS::CloudFormation::Stack'
+    Properties:
+      TemplateURL: >-
+        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-24-lb/pyramid-load-balancer.yaml
+      Parameters:
+        BaseStackName: !Ref AWS::StackName
+        WebInstance: !Ref CentralInstance
+        VPCID: !Ref VPCID
+        LoadBalancerSubnetIds: !Join 
+          - ','
+          - !Ref LoadBalancerSubnets
+        LoadBalancerInternetFacing: !Ref LoadBalancerInternetFacing
+        CertificateArn: !If
+          - ImplementHTTPS
+          - !Ref CertificateArn
+          - ''
+
+
 Outputs:
   PyramidPublicURL:
-    Value: !If
-      - PublicIP
-      - !Join
-        - ''
-        - - 'http://'
-          - !GetAtt CentralInstance.Outputs.PublicDNSName
-      - 'No public URL'
-    Description: Pyramid Public URL
+    Value: !GetAtt LoadBalancer.Outputs.PyramidPublicURL
+    Description: Pyramid Public URL from load balancer
   PrivateDNSName:
-    Value: !GetAtt CentralInstance.Outputs.PrivateDNSName
-    Description: Instance Private DNS name
-  PublicDNSName:
-    Value: !GetAtt CentralInstance.Outputs.PublicDNSName
-    Description: Instance Public DNS name
+    Value: !GetAtt LoadBalancer.Outputs.PrivateDNSName
+    Description: Load balancer private DNS name
 
   VPC:
     Value: !Ref VPCID
