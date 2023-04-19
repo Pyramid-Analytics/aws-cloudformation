@@ -1,0 +1,47 @@
+[
+    {
+      "ParameterKey": "VPCID",
+      "ParameterValue": "VPC_ID_TO_USE"
+    },
+    {
+        "ParameterKey": "KeyPairName",
+        "ParameterValue": "SSH_KEYPAIR_NAME_TO_USE"
+    },
+    {
+        "ParameterKey": "RDSPassword",
+        "ParameterValue": "SOME_PASSWORD_FOR_RDS"
+    },
+    {
+        "ParameterKey": "InitialUserPassword",
+        "ParameterValue": "SOME_USER_PASSWORD"
+    },
+    {
+        "ParameterKey": "RDSUser",
+        "ParameterValue": "pyramid"
+    },
+    {
+        "ParameterKey": "HTTPAccessCIDR",
+        "ParameterValue": "0.0.0.0/0"
+    },
+    {
+        "ParameterKey": "RDSServiceName",
+        "ParameterValue": "cf-testing-1"
+    },
+    {
+        "ParameterKey": "Subnet",
+        "ParameterValue": "SUBNET_ID_FOR_PYRAMID_INSTANCE"
+    },
+    {
+        "ParameterKey": "NewRDSSubnets",
+        "ParameterValue": "SUBNET_ID_A,SUBNET_ID_B"
+    }
+]
+
+
+
+
+
+
+
+
+

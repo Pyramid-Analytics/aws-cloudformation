@@ -1,0 +1,817 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  Deploys a single instance of Pyramid 2020 with all services against an existing
+  Postgres service for the repository database. To be deployed in a public
+  subnet, as the Pyramid web server is available on port 80. Expects to used as a nested stack.
+  You will be billed for the AWS resources used if you create a stack from this template. 
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+      - Label:
+          default: Pyramid Analytics Instance
+        Parameters:
+          - BaseStackName
+          - VPCID
+          - KeyPairName
+          - HTTPAccessCIDR
+          - AllowSSHSecurityGroup
+          - InitialUsername
+          - InitialUserPassword
+          - FileUploadSize
+      - Label:
+          default: File System
+        Parameters:
+          - ExistingFileSystemId
+    ParameterLabels:
+      BaseStackName:
+        default: Base Stack Name
+      KeyPairName:
+        default: Key pair name
+      VPCID:
+        default: VPC ID
+      HTTPAccessCIDR:
+        default: HTTP/HTTPS CIDR
+      AllowSSHSecurityGroup:
+        default: SSH Security Group ID
+      InitialUsername:
+        default: Initial Pyramid user name
+      InitialUserPassword:
+        default: Initial Pyramid User password
+      FileUploadSize:
+        default: File upload size setting for nginx web server (MB)
+      ExistingFileSystemId:
+        default: Existing File system Id
+Parameters:
+  BaseStackName:
+    Description: Base Stack Name
+    Type: String
+    MinLength: '1'
+    AllowedPattern: '[-_a-zA-Z0-9]*'
+    ConstraintDescription: Required
+  KeyPairName:
+    Description: Name of an existing EC2 key pair for SSH connections.
+    Type: 'AWS::EC2::KeyPair::KeyName'
+    ConstraintDescription: Required
+  VPCID:
+    Description: ID of your existing VPC for deployment.
+    Type: 'AWS::EC2::VPC::Id'
+    ConstraintDescription: Required
+  HTTPAccessCIDR:
+    AllowedPattern: >-
+      ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/([0-9]|[1-2][0-9]|3[0-2]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/x
+    Description: >-
+      Allowed CIDR block for HTTP and HTTPS traffic. Please set CIDR to
+      x.x.x.x/32 to allow one specific IP address access, 0.0.0.0/0 to allow all
+      IP addresses access, or another CIDR range.
+    Type: String
+    MinLength: '9'
+  InstanceType:
+    Description: >-
+      Amazon EC2 instance type for the Pyramid instance. Has to be available for
+      the deployment region.
+    Type: String
+    AllowedValues:
+      - t3.2xlarge
+      - t3a.2xlarge
+      - m5.2xlarge
+      - m5.4xlarge
+      - m5.8xlarge
+      - m5.12xlarge
+      - m5a.2xlarge
+      - m5a.4xlarge
+      - m5a.8xlarge
+      - m5a.12xlarge
+      - m5n.xlarge
+      - m5n.2xlarge
+      - m5n.4xlarge
+      - m5n.8xlarge
+      - m5n.12xlarge
+      - c5.2xlarge
+      - c5.4xlarge
+      - c5.8xlarge
+      - c5.12xlarge
+      - c5a.2xlarge
+      - c5a.4xlarge
+      - c5a.8xlarge
+      - c5a.12xlarge
+      - c5n.2xlarge
+      - c5n.4xlarge
+      - c5n.8xlarge
+      - c5n.12xlarge
+    Default: c5.2xlarge
+    ConstraintDescription: Must be a valid instance type for region.
+  AssignPublicIP:
+    Description: >-
+      Assign public IP address and domain.
+    Type: String
+    Default: true
+    AllowedValues:
+      - true
+      - false
+    ConstraintDescription: Required
+  HTTPAccessCIDR:
+    AllowedPattern: >-
+      ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/([0-9]|[1-2][0-9]|3[0-2]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/x
+    Description: >-
+      Allowed CIDR block for HTTP and HTTPS traffic. Please set CIDR to
+      x.x.x.x/32 to allow one specific IP address access, 0.0.0.0/0 to allow all
+      IP addresses access, or another CIDR range.
+    Type: String
+    MinLength: '9'
+  AllowSSHSecurityGroup:
+    Description: >-
+      Optional. ID of the security group (e.g. sg-0fec99734449e8888) to allow SSH access into the instance ie. Bastion
+      access.
+    Type: String
+    Default: ''
+    MaxLength: '128'
+    AllowedPattern: '^$|sg-[a-f0-9]{6,17}$'
+  InitialUsername:
+    ConstraintDescription: >-
+      Min 5 characters. Must begin with a letter and contain only alphanumeric
+      characters.
+    Default: admin
+    Description: The Pyramid initial username.
+    MaxLength: '16'
+    MinLength: '5'
+    Type: String
+    AllowedPattern: '^[a-zA-Z][-_a-zA-Z0-9]*$'
+  InitialUserPassword:
+    AllowedPattern: '^(?=^.{8,255}$)[a-zA-Z][-_a-zA-Z0-9]*$'
+    ConstraintDescription: >-
+      Min 8 characters. Must begin with a letter and contain only alphanumeric
+      characters, minus and underscore.
+    Description: >-
+      The Pyramid initial user password. Min 8 characters. Must begin with a
+      letter and contain only alphanumeric characters, minus and underscore.
+    MaxLength: '64'
+    MinLength: '8'
+    NoEcho: 'True'
+    Type: String
+  FileUploadSize:
+    Description: >-
+      File upload size setting for nginx (MB).
+    Type: Number
+    Default: 200
+    MinValue: 200
+    ConstraintDescription: Must be more than 200 (MB).
+  ExistingFileSystemId:
+    Description: >-
+      For reusing an existing file system for Pyramid combined with an existing repository database.
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|fs-[a-f0-9]{8}'
+    ConstraintDescription: >-
+      Optional. EFS ID like fs-9554b161.
+
+Rules:
+  KeyPairsNotEmpty:
+    Assertions:
+      - Assert: !Not 
+          - 'Fn::EachMemberEquals':
+              - 'Fn::RefAll': 'AWS::EC2::KeyPair::KeyName'
+              - ''
+        AssertDescription: All key pair parameters must not be empty
+
+Conditions:
+  AllowSSH: !Not 
+    - !Equals 
+      - !Ref AllowSSHSecurityGroup
+      - ''
+  CreateFileSystem: !Equals
+    - !Ref ExistingFileSystemId
+    - ''
+  ReuseExistingFileSystem: !Not 
+    - !Condition CreateFileSystem
+
+Resources:
+
+  PyramidRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+                - rds.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: PyramidPolicy
+          PolicyDocument:
+            Statement:
+              - Sid: AccessCFvalues
+                Effect: Allow
+                Action:
+                  - 'cloudformation:Describe*'
+                  - 'cloudformation:List*'
+                  - 'cloudformation:Get*'
+                  - 'cloudformation:Signal*'
+                Resource:
+                  - !Sub >-
+                    arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/*
+                  - !Sub >-
+                    arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stackset/*
+              - Sid: InstanceLogs
+                Effect: Allow
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:DescribeLogStreams'
+                  - 'logs:PutLogEvents'
+                Resource:
+                  - !Sub >-
+                    arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/pyramid/${BaseStackName}
+                  - !Sub >-
+                    arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/pyramid/${BaseStackName}:log-stream:*
+              - Sid: SecretsManagerGet
+                Effect: Allow
+                Action:
+                  - 'secretsmanager:GetSecretValue'
+                Resource:
+                  - !Sub >-
+                    arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:/Pyramid/${BaseStackName}/*
+              - Sid: SSMGet
+                Effect: Allow
+                Action:
+                  - 'ssm:GetParameter'
+                  - 'ssm:PutParameter'
+                  - 'ssm:GetParametersByPath'
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/Pyramid/${BaseStackName}/*'
+                  - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/Pyramid/${BaseStackName}'
+              - Sid: DescribeSubnets
+                Effect: Allow
+                Action:
+                  - 'ec2:DescribeSubnets'
+                Resource: '*'
+              - Sid: PassRole
+                Effect: Allow
+                Action:
+                  - 'iam:GetRole'
+                  - 'iam:PassRole'
+                Resource:
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/${BaseStackName}*'
+
+  PyramidRoleSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/Pyramid/${BaseStackName}/PyramidRole'
+      Type: String
+      Value: !Ref PyramidRole
+      Description: Common role for all Pyramid instances
+      Tags:
+        StackName: !Sub '${BaseStackName}'
+        Vendor: Pyramid
+
+  PyramidInstanceProfile:
+    Type: 'AWS::IAM::InstanceProfile'
+    Properties:
+      Roles:
+        - !Ref PyramidRole
+
+  PyramidInstanceProfileSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/Pyramid/${BaseStackName}/PyramidInstanceProfile'
+      Type: String
+      Value: !Ref PyramidInstanceProfile
+      Description: Common instance profile for all Pyramid instances
+      Tags:
+        StackName: !Sub '${BaseStackName}'
+        Vendor: Pyramid
+
+  WebAccessSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Allow HTTP and HTTPS access to the instance
+      VpcId: !Ref VPCID
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: !Ref HTTPAccessCIDR
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !Ref HTTPAccessCIDR
+
+  PyramidProcessesSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Allow access across the Pyramid process instances
+      VpcId: !Ref VPCID
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+  SSHIngress:
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Condition: AllowSSH
+    Properties:
+      GroupId: !GetAtt PyramidProcessesSecurityGroup.GroupId
+      IpProtocol: tcp
+      FromPort: 22
+      ToPort: 22
+      SourceSecurityGroupId: !Ref AllowSSHSecurityGroup
+  PyramidProcessesSecurityGroupInternalIngress:
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      GroupId: !GetAtt PyramidProcessesSecurityGroup.GroupId
+      IpProtocol: tcp
+      FromPort: 12100
+      ToPort: 12200
+      SourceSecurityGroupId: !GetAtt PyramidProcessesSecurityGroup.GroupId
+  PyramidProcessesSecurityGroupInternalIngressForWebServer:
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      GroupId: !GetAtt PyramidProcessesSecurityGroup.GroupId
+      IpProtocol: tcp
+      FromPort: 8282
+      ToPort: 8282
+      SourceSecurityGroupId: !GetAtt PyramidProcessesSecurityGroup.GroupId
+
+  MountTargetSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: FileSystem Security Group
+      VpcId: !Ref VPCID
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          FromPort: -1
+          ToPort: -1
+          DestinationSecurityGroupId: !GetAtt PyramidProcessesSecurityGroup.GroupId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 2049
+          ToPort: 2049
+          SourceSecurityGroupId: !GetAtt PyramidProcessesSecurityGroup.GroupId
+
+  SharedFileSystem:
+    Type: 'AWS::EFS::FileSystem'
+    Condition: CreateFileSystem
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BackupPolicy:
+        Status: ENABLED
+      Encrypted: true
+      FileSystemTags:
+        - Key: Name
+          Value: !Sub '${BaseStackName}-Pyramid-SharedFileSystem'
+      FileSystemPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: Allow administration
+            Effect: "Allow"
+            Action:
+              - "elasticfilesystem:Client*"
+            Principal:
+              AWS:
+                - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root'
+                - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${PyramidRole}'
+      KmsKeyId: !GetAtt SharedFileSystemKey.Arn
+
+  SharedFileSystemKey:
+    Type: 'AWS::KMS::Key'
+    Condition: CreateFileSystem
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      KeyPolicy:
+        Version: 2012-10-17
+        Id:  !Sub '${BaseStackName}-pyramid-shared-fs-key'
+        Statement:
+          - Sid: Allow administration of the key
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Action:
+              - 'kms:*'
+            Resource: '*'
+
+  UpdateExistingFileSystemPolicyRole:
+    Type: 'AWS::IAM::Role'
+    Condition: ReuseExistingFileSystem
+    Properties:
+      ManagedPolicyArns:
+        - !Sub >-
+          arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: UpdateExistingFileSystemPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: UpdateExistingFileSystemPolicy
+                Effect: Allow
+                Action:
+                  - 'elasticfilesystem:PutFileSystemPolicy'
+                Resource:
+                  - !Sub >-
+                    arn:${AWS::Partition}:elasticfilesystem:${AWS::Region}:${AWS::AccountId}:file-system/${ExistingFileSystemId}
+
+  UpdateExistingFileSystemPolicyLambda:
+    Type: 'AWS::Lambda::Function'
+    Condition: ReuseExistingFileSystem
+    Properties:
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import cfnresponse
+          from botocore.exceptions import ClientError
+
+          def update_file_system_policy(event, _):
+              
+              efsId = event['ResourceProperties']['EFSId']
+              region = event['ResourceProperties']['Region']
+              accountId = event['ResourceProperties']['AccountId']
+              partition = event['ResourceProperties']['Partition']
+              role = event['ResourceProperties']['Role']
+              
+              client = boto3.client('efs')
+              
+              try:
+                  # FileSystemPolicy:
+                  #   Version: "2012-10-17"
+                  #   Statement:
+                  #     - Sid: Allow administration
+                  #       Effect: "Allow"
+                  #       Action:
+                  #         - "elasticfilesystem:Client*"
+                  #       Principal:
+                  #         AWS:
+                  #           - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root'
+                  #           - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${PyramidRole}'
+                  policy = {
+                      "Version": "2012-10-17",
+                      "Statement": [
+                          {
+                              "Sid": "allow-administration",
+                              "Effect": "Allow",
+                              "Principal": {
+                                  "AWS": [
+                                      "arn:" + partition + ":iam::" + accountId + ":root",
+                                      "arn:" + partition + ":iam::" + accountId + ":role/" + role,
+                                  ]
+                              },
+                              "Action": [
+                                  "elasticfilesystem:Client*"
+                              ]
+                          }
+                      ]
+                  }
+                  response = client.put_file_system_policy(
+                      FileSystemId=efsId,
+                      Policy=json.dumps(policy)
+                  )
+
+                  return {
+                      "Status" : True,
+                      "Message" : response
+                  }
+                  
+              except ClientError as e:
+                  print(e)
+                  return {
+                        "Status" : False,
+                        "Message" :  e.response['Error']['Message']
+                  }
+
+          def handler(event, context):
+              print(event)
+              answer={}
+              if event.get("RequestType") == "Delete":
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData=answer)
+              else:
+                  answer = update_file_system_policy(event, context)
+                  if answer["Status"] == True:
+                      responseStatus = cfnresponse.SUCCESS
+                  else:
+                      responseStatus = cfnresponse.FAILED
+                  cfnresponse.send(event, context, responseStatus, responseData=answer)
+
+
+      Runtime: python3.7
+      Handler: index.handler
+      Role: !GetAtt UpdateExistingFileSystemPolicyRole.Arn
+
+  UpdateExistingFileSystemPolicy:
+    Type: 'Custom::UpdateExistingFileSystemPolicyLambda'
+    Condition: ReuseExistingFileSystem
+    Properties:
+      ServiceToken: !GetAtt UpdateExistingFileSystemPolicyLambda.Arn
+      EFSId: !Ref ExistingFileSystemId
+      Region: !Ref 'AWS::Region'
+      AccountId: !Ref 'AWS::AccountId'
+      Partition: !Ref 'AWS::Partition'
+      Role: !Ref PyramidRole
+
+
+  PyramidSharedFileSystemManagedPolicy:
+    Type: 'AWS::IAM::ManagedPolicy'
+    # DependsOn: SharedFileSystem
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: ManageSharedFileSystemMountTargets
+            Effect: Allow
+            Action:
+              - 'elasticfilesystem:DescribeMountTargets'
+              - 'elasticfilesystem:CreateMountTarget'
+            Resource:
+              - !Join
+                - ''
+                - - !Sub 'arn:${AWS::Partition}:elasticfilesystem:${AWS::Region}:${AWS::AccountId}:file-system/'
+                  - !If
+                    - CreateFileSystem
+                    - !Ref SharedFileSystem
+                    - !Ref ExistingFileSystemId
+      Roles:
+        - !Ref PyramidRole
+
+  DeleteMountTargetsRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      ManagedPolicyArns:
+        - !Ref PyramidSharedFileSystemManagedPolicy
+        - !Sub >-
+          arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: DeleteSharedFileSystemMountTargets
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: DeleteSharedFileSystemMountTargets
+                Effect: Allow
+                Action:
+                  - 'elasticfilesystem:DeleteMountTarget'
+                Resource:
+                  # - !Sub >-
+                  #   arn:${AWS::Partition}:elasticfilesystem:${AWS::Region}:${AWS::AccountId}:file-system/${SharedFileSystem}
+                  - !Join
+                    - ''
+                    - - !Sub 'arn:${AWS::Partition}:elasticfilesystem:${AWS::Region}:${AWS::AccountId}:file-system/'
+                      - !If
+                        - CreateFileSystem
+                        - !Ref SharedFileSystem
+                        - !Ref ExistingFileSystemId
+
+  DeleteMountTargetsLambda:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse 
+          from botocore.exceptions import ClientError
+
+          def delete_mount_targets(event, _):
+              
+              # find the MountTargets of the EFS id
+              
+              efsId = event['ResourceProperties']['EFSId']
+              region = event['ResourceProperties']['Region']
+              
+              client = boto3.client('efs')
+              
+              try:
+                  mount_targets = client.describe_mount_targets(FileSystemId=efsId)
+              except ClientError as e:
+                  print(e)
+                  return {
+                        "Status" : False,
+                        "Message" :  e.response['Error']['Message']
+                  }
+                  
+              if len(mount_targets["MountTargets"]) == 0:
+                  return {
+                      "Status" : True,
+                      "Message" : "no mount targets to process"
+                  }
+
+              for mount_target in mount_targets["MountTargets"]:
+                # delete them
+                  print(f"Deleting MountTarget: {mount_target['MountTargetId']} for AZ: {mount_target['AvailabilityZoneId']}")
+                  try:
+                      delete_mount_target = client.delete_mount_target(MountTargetId=mount_target["MountTargetId"])
+                  except ClientError as e:
+                      print(e)
+                      return {
+                          "Status" : False,
+                          "Message" : e.response['Error']['Message']
+                      }
+
+              return {
+                  "Status" : True,
+                  "Message" : "OK"
+              }
+
+          def handler(event, context):
+              print(event)
+              answer={}
+              if event.get("RequestType") == "Delete":
+                  answer = delete_mount_targets(event, context)
+              cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData=answer)
+
+      Runtime: python3.7
+      Handler: index.handler
+      Role: !GetAtt DeleteMountTargetsRole.Arn
+
+  DeleteMountTargets:
+    Type: 'Custom::DeleteMountTargetsLambda'
+    Properties:
+      ServiceToken: !GetAtt DeleteMountTargetsLambda.Arn
+      EFSId: !If
+        - CreateFileSystem
+        - !Ref SharedFileSystem
+        - !Ref ExistingFileSystemId
+
+      Region: !Ref 'AWS::Region'
+
+  InitialUserPasswordSecret:
+    Type: 'AWS::SecretsManager::Secret'
+    Properties:
+      Name: !Sub '/Pyramid/${BaseStackName}/InitialUserPassword'
+      Description: Password for RDS service
+      SecretString: !Ref InitialUserPassword
+      Tags:
+        -
+          Key: StackName
+          Value: !Ref BaseStackName
+        -
+          Key: Vendor
+          Value: Pyramid
+
+  KeyPairNameSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/Pyramid/${BaseStackName}/KeyPairName'
+      Type: String
+      Value: !Ref KeyPairName
+      Description: Key pair name
+      Tags:
+        StackName: !Ref BaseStackName
+        Vendor: Pyramid
+
+  FileUploadSizeSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/Pyramid/${BaseStackName}/FileUploadSize'
+      Type: String
+      Value: !Ref FileUploadSize
+      Description: Max File Upload Size (MB)
+      Tags:
+        StackName: !Ref BaseStackName
+        Vendor: Pyramid
+
+  PyramidProcessesSecurityGroupSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/Pyramid/${BaseStackName}/PyramidProcessesSecurityGroup'
+      Type: String
+      Value: !Ref PyramidProcessesSecurityGroup
+      Description: Common security group for all Pyramid instances
+      Tags:
+        StackName: !Sub '${BaseStackName}'
+        Vendor: Pyramid
+
+  WebAccessSecurityGroupSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/Pyramid/${BaseStackName}/WebAccessSecurityGroup'
+      Type: String
+      Value: !Ref WebAccessSecurityGroup
+      Description: Security group for web access to instances
+      Tags:
+        StackName: !Sub '${BaseStackName}'
+        Vendor: Pyramid
+
+  MountTargetSecurityGroupSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/Pyramid/${BaseStackName}/MountTargetSecurityGroup'
+      Type: String
+      Value: !Ref MountTargetSecurityGroup
+      Description: Security group to allow Pyramid instances mount EFS volumes
+      Tags:
+        StackName: !Sub '${BaseStackName}'
+        Vendor: Pyramid
+
+  SharedFileSystemSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/Pyramid/${BaseStackName}/SharedFileSystem'
+      Type: String
+      Value: !If
+        - CreateFileSystem
+        - !Ref SharedFileSystem
+        - !Ref ExistingFileSystemId
+      Description: EFS volume shared across Pyramid instances
+      Tags:
+        StackName: !Sub '${BaseStackName}'
+        Vendor: Pyramid
+
+  InitialUsernameSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/Pyramid/${BaseStackName}/InitialUsername'
+      Type: String
+      Value: !Ref InitialUsername
+      Description: Initial admin User name for the yramid deployment
+      Tags:
+        StackName: !Sub '${BaseStackName}'
+        Vendor: Pyramid
+
+  InitialUserPasswordARNSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/Pyramid/${BaseStackName}/InitialUserPasswordARN'
+      Type: String
+      Value: !Ref InitialUserPasswordSecret
+      Description: ARN of repository database password Secret
+      Tags:
+        StackName: !Sub '${BaseStackName}'
+        Vendor: Pyramid
+
+  PyramidLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties: 
+      LogGroupName: !Sub '/pyramid/${BaseStackName}'
+      RetentionInDays: 30
+
+Outputs:
+  VPC:
+    Value: !Ref VPCID
+    Description: VPC for deployment
+  KeyPairName:
+    Value: !Ref KeyPairName
+    Description: Key Pair for instances
+  WebAccessSecurityGroup:
+    Value: !Ref WebAccessSecurityGroup
+    Description: Security Group for Pyramid instances' Web access
+  WebAccessSecurityGroupId:
+    Value: !GetAtt WebAccessSecurityGroup.GroupId
+    Description: Security Group for Pyramid instances' Web access
+  PyramidProcessesSecurityGroup:
+    Value: !Ref PyramidProcessesSecurityGroup
+    Description: Security Group for Pyramid instances' internal communication
+  PyramidProcessesSecurityGroupId:
+    Value: !GetAtt PyramidProcessesSecurityGroup.GroupId
+    Description: Security Group Id for Pyramid instances' internal communication
+  MountTargetSecurityGroup:
+    Value: !Ref MountTargetSecurityGroup
+    Description: Security Group for EFS Mount Targets
+  MountTargetSecurityGroupId:
+    Value: !GetAtt MountTargetSecurityGroup.GroupId
+    Description: Security Group Id for EFS Mount Targets
+
+  PyramidRole:
+    Value: !Ref PyramidRole
+    Description: IAM Role for instances launched from this stack
+  PyramidInstanceProfile:
+    Value: !Ref PyramidInstanceProfile
+    Description: IAM Instance Profile for instances launched from this stack
+    
+  SharedFileSystem:
+    Value: !If
+      - CreateFileSystem
+      - !Ref SharedFileSystem
+      - !Ref ExistingFileSystemId
+    Description: EFS file system ID for the shared file system across the deployment
+  InitialUsername:
+    Value: !Ref InitialUsername
+    Description: Initial Pyramid user name
+  InitialUserPasswordARN:
+    Value: !Ref InitialUserPasswordSecret
+    Description: Initial Pyramid user password in Secrets Manager
