@@ -1,0 +1,56 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Resources:
+  InstanceWaitHandle:
+    Type: 'AWS::CloudFormation::WaitConditionHandle'
+  InstanceWaitCondition:
+    Type: 'AWS::CloudFormation::WaitCondition'
+    Properties:
+      Handle: !Ref InstanceWaitHandle
+      # 25 mins
+      Timeout: '1500'
+      Count: 1
+  NetworkTestingInstance:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      ImageId: ami-005f9685cb30f234b
+      InstanceType: t2.micro
+      KeyName: lutz.paelike
+      UserData:
+        Fn::Base64: !Sub |
+            #!/bin/bash
+            yum install -y aws-cfn-bootstrap
+            /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} \
+              --resource NetworkTestingInstance  \
+              --region ${AWS::Region}
+            cat >/tmp/test_connect.py <<EOF
+            import sys
+            import urllib.request
+
+            try:
+                resp = urllib.request.urlopen("https://www.google.com").read()
+                if resp: print("ok")
+                sys.exit(0)
+            except Exception as e:
+                print("error, can not connect")
+                print(e)
+                sys.exit(5)
+            EOF
+            python3 /tmp/test_connect.py >/command-output.txt
+            retVal=$?
+            if [ $retVal -ne 0 ]; then
+               echo "/opt/aws/bin/cfn-signal  -r \"Error: $(cat /command-output.txt)\" -e $retVal --id \"Output\" --data=\"$(cat /command-output.txt)\" \"${InstanceWaitHandle}\"" >/cmd_signal.sh
+            else
+               echo "/opt/aws/bin/cfn-signal  -r \"Ok\" -e $retVal --id \"Output\" --data=\"$(cat /command-output.txt)\" \"${InstanceWaitHandle}\"" >/cmd_signal.sh
+            fi
+            bash /cmd_signal.sh
+            echo Contents of /command-output.txt = $(cat /command-output.txt)
+            exit $retVal
+Outputs:
+  TestOutput:
+    Value: !GetAtt [InstanceWaitCondition, Data]
+    Description: The output of the network test
+  TestInstanceId:
+    Value: !Ref NetworkTestingInstance
+    Description: The instanceid for the test
+

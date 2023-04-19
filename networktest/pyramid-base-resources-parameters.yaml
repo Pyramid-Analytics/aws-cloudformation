@@ -48,6 +48,12 @@ Parameters:
     MinLength: '1'
     AllowedPattern: '[-_a-zA-Z0-9]*'
     ConstraintDescription: Required
+  TestInstanceStack:
+    Description: TestStack Id
+    Type: String
+  TestInstanceId:
+    Description: EC2 Test Instance Id
+    Type: 'AWS::EC2::Instance::Id'
   KeyPairName:
     Description: Name of an existing EC2 key pair for SSH connections.
     Type: 'AWS::EC2::KeyPair::KeyName'
@@ -198,6 +204,7 @@ Resources:
               Service:
                 - ec2.amazonaws.com
                 - rds.amazonaws.com
+                - cloudformation.amazonaws.com
             Action:
               - 'sts:AssumeRole'
       Path: /
@@ -257,6 +264,25 @@ Resources:
                   - 'iam:PassRole'
                 Resource:
                   - !Sub 'arn:aws:iam::${AWS::AccountId}:role/${BaseStackName}*'
+              - Sid: CleanTestInstanceCF
+                Effect: "Allow"
+                Action:
+                - "cloudformation:DeleteStack"
+                Resource: 
+                  - !Sub 'arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${TestInstanceStack}/*'
+                  - !Sub 'arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${TestInstanceStack}'
+
+              - Sid: CleanTestInstanceEC2
+                Effect: "Allow"
+                Action:
+                - "ec2:TerminateInstances"
+                Resource: 
+                  - !Sub 'arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/${TestInstanceId}'
+              - Sid: DescribeInstances
+                Effect: Allow
+                Action:
+                  - 'ec2:DescribeInstances'
+                Resource: '*'
 
   PyramidRoleSSM:
     Type: AWS::SSM::Parameter

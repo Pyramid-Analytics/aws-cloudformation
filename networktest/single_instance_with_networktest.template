@@ -299,13 +299,25 @@ Conditions:
       - Ref: BackupS3Bucket
       - ''
 Resources:
+  NetworkTestStack:
+    Type: "AWS::CloudFormation::Stack"
+    Properties:
+      TemplateURL: https://pyramid-cloudformation.s3.amazonaws.com/submodules/network-test/network-test.yaml
   BaseResourcesParameters:
     Type: AWS::CloudFormation::Stack
+<<<<<<< Updated upstream
+=======
+    DependsOn: NetworkTestStack
+>>>>>>> Stashed changes
     Properties:
-      TemplateURL: https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-22/pyramid-base-resources-parameters.yaml
+      TemplateURL: https://pyramid-cloudformation.s3.amazonaws.com/templates/pyramid-base-resources-parameters-testing.yaml
       Parameters:
         BaseStackName:
           Ref: AWS::StackName
+        TestInstanceId:
+          Fn::GetAtt: NetworkTestStack.Outputs.TestInstanceId
+        TestInstanceStack:
+          !Select [1, !Split ["/", !Ref NetworkTestStack ]]
         VPCID:
           Ref: VPCID
         KeyPairName:
@@ -503,7 +515,7 @@ Resources:
     DependsOn:
     - PyramidProcessesSecurityGroupRepositoryAccess
     Properties:
-      TemplateURL: https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-22/pyramid-single-instance.yaml
+      TemplateURL: https://pyramid-cloudformation.s3.amazonaws.com/templates/pyramid-single-instance-testing.yaml
       Parameters:
         AMIID:
           Fn::FindInMap:
@@ -512,6 +524,11 @@ Resources:
           - '64'
         BaseStackName:
           Ref: AWS::StackName
+<<<<<<< Updated upstream
+=======
+        TestingStackName:
+          !Select [1, !Split ["/", !Ref NetworkTestStack ]]
+>>>>>>> Stashed changes
         PyramidProcess: Everything
         InstancePurpose: CentralInstance
         InstanceType:
@@ -525,8 +542,6 @@ Resources:
         Subnet:
           Ref: Subnet
         AssignPublicIP:
-          Ref: AssignPublicIP
-        TestingInstance:
           Ref: AssignPublicIP
         InstallProxy: true
         RepositoryType:
