@@ -305,10 +305,7 @@ Resources:
       TemplateURL: https://pyramid-cloudformation.s3.amazonaws.com/submodules/network-test/network-test.yaml
   BaseResourcesParameters:
     Type: AWS::CloudFormation::Stack
-<<<<<<< Updated upstream
-=======
     DependsOn: NetworkTestStack
->>>>>>> Stashed changes
     Properties:
       TemplateURL: https://pyramid-cloudformation.s3.amazonaws.com/templates/pyramid-base-resources-parameters-testing.yaml
       Parameters:
@@ -524,11 +521,8 @@ Resources:
           - '64'
         BaseStackName:
           Ref: AWS::StackName
-<<<<<<< Updated upstream
-=======
         TestingStackName:
           !Select [1, !Split ["/", !Ref NetworkTestStack ]]
->>>>>>> Stashed changes
         PyramidProcess: Everything
         InstancePurpose: CentralInstance
         InstanceType:
