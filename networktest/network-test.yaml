@@ -63,7 +63,9 @@ Resources:
       ImageId: ami-005f9685cb30f234b
       InstanceType: t2.micro
       KeyName: !Ref KeyPairName
-      SecurityGroupIds:
+      SecurityGroupIds: !If
+         - AssignPublicIPCondition
+         - !Ref 'AWS::NoValue'
          - !Ref TestAccessSecurityGroup
       SubnetId: !If
          - AssignPublicIPCondition
