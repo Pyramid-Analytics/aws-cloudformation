@@ -54,6 +54,9 @@ Parameters:
   TestInstanceId:
     Description: EC2 Test Instance Id
     Type: 'AWS::EC2::Instance::Id'
+  TestInstanceSG:
+    Description: Test instance security group
+    Type: 'AWS::EC2::SecurityGroup::Id'
   KeyPairName:
     Description: Name of an existing EC2 key pair for SSH connections.
     Type: 'AWS::EC2::KeyPair::KeyName'
@@ -278,6 +281,12 @@ Resources:
                 - "ec2:TerminateInstances"
                 Resource: 
                   - !Sub 'arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/${TestInstanceId}'
+              - Sid: CleanTestInstanceSG
+                Effect: "Allow"
+                Action:
+                - "ec2:DeleteSecurityGroup"
+                Resource: 
+                  - !Sub 'arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:security-group/${TestInstanceSG}'
               - Sid: DescribeInstances
                 Effect: Allow
                 Action:
