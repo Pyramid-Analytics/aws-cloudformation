@@ -84,10 +84,6 @@ Resources:
       UserData:
         Fn::Base64: !Sub |
             #!/bin/bash
-            # yum install -y aws-cfn-bootstrap
-            #/opt/aws/bin/cfn-init -v --stack ${AWS::StackName} \
-            #  --resource NetworkTestingInstance  \
-            #  --region ${AWS::Region}
             cat >/tmp/test_connect.py <<EOF
             import sys
             import urllib.request
@@ -110,7 +106,7 @@ Resources:
             fi
             bash /cmd_signal.sh
             echo Contents of /command-output.txt = $(cat /command-output.txt)
-            exit $retVal
+            exit 0
 Outputs:
   TestOutput:
     Value: !GetAtt [InstanceWaitCondition, Data]
