@@ -78,6 +78,10 @@ Parameters:
     MinLength: '1'
     AllowedPattern: '[-_a-zA-Z0-9]*'
     ConstraintDescription: Required
+  TestingStackName:
+    Description: Testing Stack name
+    Type: String
+    Default: ''
   InstancePurpose:
     Description: Free text note indicating instance's purpose.
     Type: String
@@ -387,6 +391,12 @@ Resources:
 
         InstallPyramid:
           commands:
+            0-cleanup-testinstance:
+              command: !Join
+                - ' '
+                - - 'echo aws cloudformation delete-stack --stack-name '
+                  - !Ref TestingStackName
+                  - '>/tmp/clean_test_instance.sh; bash /tmp/clean_test_instance.sh'
             1-generate-unattended-install-settings:
               test: "ls /usr/src/pyramid/*.run"
               command: !Join

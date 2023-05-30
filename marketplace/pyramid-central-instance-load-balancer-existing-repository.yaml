@@ -384,14 +384,35 @@ Conditions:
 
 
 Resources:
+  NetworkTestStack:
+    Type: "AWS::CloudFormation::Stack"
+    Properties:
+      TemplateURL: https://pyramid-cloudformation.s3.amazonaws.com/submodules/network-test/network-test.yaml
+      Parameters:
+        Subnet:
+          Ref: Subnet
+        BaseStackName:
+          Ref: AWS::StackName
+        AssignPublicIP:
+          Ref: AssignPublicIP
+        VPCID:
+          Ref: VPCID
+        KeyPairName:
+          Ref: KeyPairName
 
   BaseResourcesParameters:
     Type: 'AWS::CloudFormation::Stack'
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-27/pyramid-base-resources-parameters.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/templates/pyramid-base-resources-parameters-testing.yaml
       Parameters:
         BaseStackName: !Ref AWS::StackName
+        TestInstanceId:
+          Fn::GetAtt: NetworkTestStack.Outputs.TestInstanceId
+        TestInstanceSG:
+          Fn::GetAtt: NetworkTestStack.Outputs.TestInstanceSG
+        TestInstanceStack:
+          !Select [1, !Split ["/", !Ref NetworkTestStack ]]
         VPCID: !Ref VPCID
         KeyPairName: !Ref KeyPairName
         HTTPAccessCIDR: !Ref HTTPAccessCIDR
@@ -533,13 +554,15 @@ Resources:
       - PyramidProcessesSecurityGroupRepositoryAccess
     Properties:
       TemplateURL: >-
-        https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-27/pyramid-single-instance.yaml
+        https://pyramid-cloudformation.s3.amazonaws.com/templates/pyramid-single-instance-testing.yaml
       Parameters:
         AMIID: !FindInMap 
           - AWSAMIRegionMap
           - !Ref 'AWS::Region'
           - '64'
         BaseStackName: !Ref AWS::StackName
+        TestingStackName:
+          !Select [1, !Split ["/", !Ref NetworkTestStack ]]
         PyramidProcess: Everything
         InstancePurpose: CentralInstance
         InstanceType: !Ref InstanceType
