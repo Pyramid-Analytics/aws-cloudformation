@@ -1,0 +1,631 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Deploys a single instance of Pyramid 2020 with all services and a new
+  Aurora Postgres cluster for the repository database. Option to restore from a Pyramid
+  backup. To be deployed in a public subnet, as the Pyramid web server is available
+  on port 80. You will be billed for the AWS resources used if you create a stack
+  from this template. '
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+    - Label:
+        default: Pyramid Analytics Instance
+      Parameters:
+      - VPCID
+      - Subnet
+      - InstanceType
+      - KeyPairName
+      - AssignPublicIP
+      - HTTPAccessCIDR
+      - AllowSSHSecurityGroup
+      - InitialUsername
+      - InitialUserPassword
+      - FileUploadSize
+    - Label:
+        default: New Repository Database Service
+      Parameters:
+      - RDSDeploymentType
+      - RDSServiceName
+      - NewRDSSubnets
+      - RDSUser
+      - RDSPassword
+      - RDSName
+    - Label:
+        default: Pyramid S3 backup to restore from
+      Parameters:
+      - BackupS3Bucket
+      - BackupS3Folder
+    ParameterLabels:
+      KeyPairName:
+        default: Key pair name
+      VPCID:
+        default: VPC ID
+      Subnet:
+        default: Subnet for Pyramid instance
+      InstanceType:
+        default: Instance type
+      AssignPublicIP:
+        default: Assign public IP and domain name
+      HTTPAccessCIDR:
+        default: HTTP/HTTPS CIDR
+      AllowSSHSecurityGroup:
+        default: SSH Security Group ID
+      RDSDeploymentType:
+        default: RDS Deployment type
+      RDSServiceName:
+        default: New RDS service name
+      NewRDSSubnets:
+        default: New RDS service subnets
+      RDSUser:
+        default: RDS database user name
+      RDSPassword:
+        default: RDS database password
+      RDSName:
+        default: Repository database name
+      FileUploadSize:
+        default: File upload size setting for nginx web server (MB)
+      InitialUsername:
+        default: Initial Pyramid user name
+      InitialUserPassword:
+        default: Initial Pyramid User password
+      BackupS3Bucket:
+        default: S3 bucket containing a Pyramid backup
+      BackupS3Folder:
+        default: Path under S3 bucket to a Pyramid backup
+Parameters:
+  KeyPairName:
+    Description: Name of an existing EC2 key pair for SSH connections.
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: Required
+  VPCID:
+    Description: ID of your existing VPC for deployment.
+    Type: AWS::EC2::VPC::Id
+    ConstraintDescription: Required
+  Subnet:
+    Description: Subnet for instance. Accessible by HTTP/S from browsers.
+    Type: AWS::EC2::Subnet::Id
+  InstanceType:
+    Description: Amazon EC2 instance type for the Pyramid instance. Has to be available for the deployment region.
+    Type: String
+    AllowedValues:
+    - t3.2xlarge
+    - t3a.2xlarge
+    - m5.2xlarge
+    - m5.4xlarge
+    - m5.8xlarge
+    - m5.12xlarge
+    - m5a.2xlarge
+    - m5a.4xlarge
+    - m5a.8xlarge
+    - m5a.12xlarge
+    - m5n.2xlarge
+    - m5n.4xlarge
+    - m5n.8xlarge
+    - m5n.12xlarge
+    - c5.2xlarge
+    - c5.4xlarge
+    - c5.8xlarge
+    - c5.12xlarge
+    - c5a.2xlarge
+    - c5a.4xlarge
+    - c5a.8xlarge
+    - c5a.12xlarge
+    - c5n.2xlarge
+    - c5n.4xlarge
+    - c5n.8xlarge
+    - c5n.12xlarge
+    Default: c5.4xlarge
+    ConstraintDescription: Must be a valid instance type for region.
+  AssignPublicIP:
+    Description: Assign public IP address and domain.
+    Type: String
+    Default: true
+    AllowedValues:
+    - true
+    - false
+    ConstraintDescription: Required
+  HTTPAccessCIDR:
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/([0-9]|[1-2][0-9]|3[0-2]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/x
+    Description: Allowed CIDR block for HTTP and HTTPS traffic. Please set CIDR to x.x.x.x/32 to allow one specific IP address access, 0.0.0.0/0 to allow all IP addresses access, or another CIDR range.
+    Type: String
+    MinLength: '9'
+  AllowSSHSecurityGroup:
+    Description: Optional. ID of the security group (e.g. sg-0fec99734449e8888) to allow SSH access into the instance ie. Bastion access.
+    Type: String
+    Default: ''
+    MaxLength: '128'
+    AllowedPattern: ^$|sg-[a-f0-9]{6,17}$
+  RDSDeploymentType:
+    Description: RDS deployment type
+    Type: String
+    Default: PostgreSQLAuroraServerless
+    AllowedValues:
+    - PostgreSQLAuroraServerless
+    - PostgreSQLAuroraProvisioned
+    - PostgreSQL
+    - MicrosoftSQLServer
+  RDSServiceName:
+    Description: Name of the new RDS service (ie. pyramid)
+    Type: String
+    MinLength: '5'
+    MaxLength: '128'
+    AllowedPattern: '[a-zA-Z][-a-zA-Z0-9]*'
+    ConstraintDescription: Min 5 characters. First character must be a letter. Must contain only letters, digits or '-'.
+  NewRDSSubnets:
+    Description: Subnets to deploy the new RDS cluster into.  At least 2 must be entered, even when using existing service.
+    Type: List<AWS::EC2::Subnet::Id>
+    ConstraintDescription: Required
+  RDSUser:
+    Description: Master user name for the RDS database. Min 5 characters. It can contain only alphanumeric characters and underscores.
+    Type: String
+    MinLength: '5'
+    MaxLength: '64'
+    AllowedPattern: '[-_a-zA-Z0-9]*'
+    ConstraintDescription: Min 5 characters. Can contain only alphanumeric characters, minus and underscores.
+  RDSPassword:
+    Description: Master password for the RDS database. Min 8 characters. Can contain only alphanumeric characters, minus and underscores.
+    Type: String
+    MinLength: '8'
+    MaxLength: '64'
+    NoEcho: 'true'
+    AllowedPattern: '[-_a-zA-Z0-9]*'
+    ConstraintDescription: Min 8 characters. Can contain only alphanumeric characters, minus and underscores.
+  RDSName:
+    Description: Repository database name in the RDS service.
+    Type: String
+    Default: pyramid
+    MinLength: '6'
+    MaxLength: '64'
+    AllowedPattern: '[a-zA-Z][_a-zA-Z0-9]*'
+    ConstraintDescription: Min 6 characters. Must begin with a letter and contain only alphanumeric characters and underscores.
+  InitialUsername:
+    ConstraintDescription: Min 5 characters. Must begin with a letter and contain only alphanumeric characters.
+    Default: admin
+    Description: The Pyramid initial username.
+    MaxLength: '16'
+    MinLength: '5'
+    Type: String
+    AllowedPattern: ^[a-zA-Z][-_a-zA-Z0-9]*$
+  InitialUserPassword:
+    AllowedPattern: ^(?=^.{8,255}$)[a-zA-Z][-_a-zA-Z0-9]*$
+    ConstraintDescription: Min 8 characters. Must begin with a letter and contain only alphanumeric characters, minus and underscore.
+    Description: The Pyramid initial user password. Min 8 characters. Must begin with a letter and contain only alphanumeric characters, minus and underscore.
+    MaxLength: '64'
+    MinLength: '8'
+    NoEcho: 'True'
+    Type: String
+  FileUploadSize:
+    Description: File upload size setting for nginx (MB).
+    Type: Number
+    Default: 200
+    MinValue: 200
+    ConstraintDescription: Must be more than 200 (MB).
+  BackupS3Bucket:
+    Description: S3 bucket to a Pyramid backup
+    Type: String
+    Default: ''
+    MaxLength: '1000'
+    AllowedPattern: ^$|^(?=^.{5,1000}$)[a-zA-Z][-_a-zA-Z0-9\=()]*$
+    ConstraintDescription: Optional. Otherwise min 5 characters. First character must be a letter. Must contain only letters, digits, '-', '_', '=' or parentheses.
+  BackupS3Folder:
+    Description: Path within S3 bucket to a Pyramid backup
+    Type: String
+    Default: ''
+    MaxLength: '1000'
+    AllowedPattern: ^$|^(?=^.{5,1000}$)[a-zA-Z0-9][-_a-zA-Z0-9/\=()+]*$
+    ConstraintDescription: Optional. Otherwise min 5 characters. First character must be a letter or number. Must contain only letters, digits, '/', '-', '+', '_', '=' or parentheses.
+Mappings:
+  AWSAMIRegionMap:
+    us-east-1:
+      '64': ami-07969fa59363e0106
+    us-east-2:
+      '64': ami-0b74a0cefe8baa752
+    us-gov-west-1:
+      '64': ami-0d4902d531602d402
+    us-gov-east-1:
+      '64': ami-0c866e133c1cb0f2d    
+    us-west-1:
+      '64': ami-0b824142a6ea1749d
+    us-west-2:
+      '64': ami-06d8f9f38835cc849
+    ca-central-1:
+      '64': ami-0b848b2edd94a66a2
+    eu-central-1:
+      '64': ami-0314f1f6738f0c637
+    eu-west-1:
+      '64': ami-0aadad70da61a8367
+    eu-west-2:
+      '64': ami-0bc489f9d0776e3d5
+    eu-west-3:
+      '64': ami-0d4c8c1960204f2f5
+    ap-southeast-1:
+      '64': ami-025c43061e398ba92
+    ap-southeast-2:
+      '64': ami-00dbdfc917c8c11ca
+    ap-south-1:
+      '64': ami-0e4e9f6ee99b43e9e
+    ap-northeast-1:
+      '64': ami-0a0acd45e0d032279
+    ap-northeast-2:
+      '64': ami-01121f6dc1616c877
+    sa-east-1:
+      '64': ami-00d68a9601acec122
+    eu-north-1:
+      '64': ami-0657e9242b0837765
+    me-south-1:
+      '64': ami-087c469c255f26371
+    af-south-1:
+      '64': ami-07c5ea97f56b5a4a8
+    eu-south-1:
+      '64': ami-01011c37689a429d3
+Rules:
+  SubnetsNotEmpty:
+    Assertions:
+    - Assert:
+        Fn::Not:
+        - Fn::EachMemberEquals:
+          - Fn::RefAll: AWS::EC2::Subnet::Id
+          - ''
+      AssertDescription: All subnet parameters must not be empty
+  KeyPairsNotEmpty:
+    Assertions:
+    - Assert:
+        Fn::Not:
+        - Fn::EachMemberEquals:
+          - Fn::RefAll: AWS::EC2::KeyPair::KeyName
+          - ''
+      AssertDescription: All key pair parameters must not be empty
+  SubnetsInVPC:
+    Assertions:
+    - Assert:
+        Fn::EachMemberIn:
+        - Fn::ValueOfAll:
+          - AWS::EC2::Subnet::Id
+          - VpcId
+        - Fn::RefAll: AWS::EC2::VPC::Id
+      AssertDescription: All subnets must be in the same VPC
+Conditions:
+  DatabaseTypeIsMicrosoft:
+    Fn::Equals:
+    - Ref: RDSDeploymentType
+    - MicrosoftSQLServer
+  PublicIP:
+    Fn::Equals:
+    - Ref: AssignPublicIP
+    - 'true'
+  RestoreFromBackup:
+    Fn::Not:
+    - Fn::Equals:
+      - Ref: BackupS3Bucket
+      - ''
+Resources:
+  BaseResourcesParameters:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-22/pyramid-base-resources-parameters.yaml
+      Parameters:
+        BaseStackName:
+          Ref: AWS::StackName
+        VPCID:
+          Ref: VPCID
+        KeyPairName:
+          Ref: KeyPairName
+        HTTPAccessCIDR:
+          Ref: HTTPAccessCIDR
+        AllowSSHSecurityGroup:
+          Ref: AllowSSHSecurityGroup
+        InitialUsername:
+          Ref: InitialUsername
+        InitialUserPassword:
+          Ref: InitialUserPassword
+        FileUploadSize:
+          Ref: FileUploadSize
+  CreateRepositoryDatabaseService:
+    Type: AWS::CloudFormation::Stack
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    DependsOn: BaseResourcesParameters
+    Properties:
+      TemplateURL: https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-22/pyramid-repository-database.yaml
+      Parameters:
+        BaseStackName:
+          Ref: AWS::StackName
+        RDSDeploymentType:
+          Ref: RDSDeploymentType
+        VPCID:
+          Ref: VPCID
+        SubnetIds:
+          Fn::Join:
+          - ','
+          - Ref: NewRDSSubnets
+        DBServiceName:
+          Ref: RDSServiceName
+        DBMasterUsername:
+          Ref: RDSUser
+        DBMasterUserPassword:
+          Ref: RDSPassword
+  RepositoryDatabaseTypeSSM:
+    Type: AWS::SSM::Parameter
+    DependsOn: CreateRepositoryDatabaseService
+    Properties:
+      Name:
+        Fn::Sub: /Pyramid/${AWS::StackName}/RepositoryDatabaseType
+      Type: String
+      Value:
+        Fn::If:
+        - DatabaseTypeIsMicrosoft
+        - MicrosoftSQLServer
+        - PostgreSQL
+      Description: Database type for repository in RDS
+      Tags:
+        StackName:
+          Fn::Sub: ${AWS::StackName}
+        Vendor: Pyramid
+  RepositoryDatabaseServiceNameSSM:
+    Type: AWS::SSM::Parameter
+    DependsOn: CreateRepositoryDatabaseService
+    Properties:
+      Name:
+        Fn::Sub: /Pyramid/${AWS::StackName}/RepositoryDatabaseServiceName
+      Type: String
+      Value:
+        Ref: RDSServiceName
+      Description: RDS service name of repository
+      Tags:
+        StackName:
+          Fn::Sub: ${AWS::StackName}
+        Vendor: Pyramid
+  RepositoryDatabaseAddressSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name:
+        Fn::Sub: /Pyramid/${AWS::StackName}/RepositoryDatabaseAddress
+      Type: String
+      Value:
+        Fn::GetAtt: CreateRepositoryDatabaseService.Outputs.RDSEndPointAddress
+      Description: RDS domain of repository
+      Tags:
+        StackName:
+          Fn::Sub: ${AWS::StackName}
+        Vendor: Pyramid
+  RepositoryDatabasePortSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name:
+        Fn::Sub: /Pyramid/${AWS::StackName}/RepositoryDatabasePort
+      Type: String
+      Value:
+        Fn::GetAtt: CreateRepositoryDatabaseService.Outputs.RDSEndPointPort
+      Description: Port for repository in RDS
+      Tags:
+        StackName:
+          Fn::Sub: ${AWS::StackName}
+        Vendor: Pyramid
+  RepositoryDatabaseUsernameSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name:
+        Fn::Sub: /Pyramid/${AWS::StackName}/RepositoryDatabaseUsername
+      Type: String
+      Value:
+        Fn::GetAtt: CreateRepositoryDatabaseService.Outputs.DBMasterUsername
+      Description: User name for repository in RDS
+      Tags:
+        StackName:
+          Fn::Sub: ${AWS::StackName}
+        Vendor: Pyramid
+  RDSPasswordSecret:
+    Type: AWS::SecretsManager::Secret
+    DependsOn: CreateRepositoryDatabaseService
+    Properties:
+      Name:
+        Fn::Sub: /Pyramid/${AWS::StackName}/RepositoryDatabasePassword
+      Description: Password for RDS service
+      SecretString:
+        Ref: RDSPassword
+      Tags:
+      - Key: StackName
+        Value:
+          Ref: AWS::StackName
+      - Key: Vendor
+        Value: Pyramid
+  RepositoryDatabasePasswordARNSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name:
+        Fn::Sub: /Pyramid/${AWS::StackName}/RepositoryDatabasePasswordARN
+      Type: String
+      Value:
+        Ref: RDSPasswordSecret
+      Description: ARN of repository database password Secret
+      Tags:
+        StackName:
+          Fn::Sub: ${AWS::StackName}
+        Vendor: Pyramid
+  RepositoryDatabaseNameSSM:
+    Type: AWS::SSM::Parameter
+    DependsOn: CreateRepositoryDatabaseService
+    Properties:
+      Name:
+        Fn::Sub: /Pyramid/${AWS::StackName}/RepositoryDatabaseName
+      Type: String
+      Value:
+        Ref: RDSName
+      Description: Repository schema name in RDS service
+      Tags:
+        StackName:
+          Fn::Sub: ${AWS::StackName}
+        Vendor: Pyramid
+  RepositoryDatabaseEncryptionKeyARNSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name:
+        Fn::Sub: /Pyramid/${AWS::StackName}/RepositoryDatabaseEncryptionKeyARN
+      Type: String
+      Value:
+        Fn::GetAtt: CreateRepositoryDatabaseService.Outputs.RDSEncryptionKeyARN
+      Description: Encryption key for Repository RDS Service
+      Tags:
+        StackName:
+          Fn::Sub: ${AWS::StackName}
+        Vendor: Pyramid
+  PyramidProcessesSecurityGroupRepositoryAccess:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId:
+        Fn::GetAtt: CreateRepositoryDatabaseService.Outputs.RDSSecurityGroupId
+      IpProtocol: tcp
+      FromPort:
+        Fn::GetAtt: CreateRepositoryDatabaseService.Outputs.RDSEndPointPort
+      ToPort:
+        Fn::GetAtt: CreateRepositoryDatabaseService.Outputs.RDSEndPointPort
+      SourceSecurityGroupId:
+        Fn::GetAtt: BaseResourcesParameters.Outputs.PyramidProcessesSecurityGroupId
+  RestoreBackup:
+    Type: AWS::CloudFormation::Stack
+    Condition: RestoreFromBackup
+    DependsOn:
+    - PyramidProcessesSecurityGroupRepositoryAccess
+    Properties:
+      TemplateURL: https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-22/pyramid-backup-restore-s3.yaml
+      Parameters:
+        BackupRestore: restore
+        BaseStackName:
+          Ref: AWS::StackName
+        BucketName:
+          Ref: BackupS3Bucket
+        BucketFolder:
+          Ref: BackupS3Folder
+        Subnet:
+          Ref: Subnet
+  CentralInstance:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+    - PyramidProcessesSecurityGroupRepositoryAccess
+    Properties:
+      TemplateURL: https://pyramid-cloudformation.s3.amazonaws.com/marketplace/2020-22/pyramid-single-instance.yaml
+      Parameters:
+        AMIID:
+          Fn::FindInMap:
+          - AWSAMIRegionMap
+          - Ref: AWS::Region
+          - '64'
+        BaseStackName:
+          Ref: AWS::StackName
+        PyramidProcess: Everything
+        InstancePurpose: CentralInstance
+        InstanceType:
+          Ref: InstanceType
+        WorkloadSecurityGroups:
+          Fn::Join:
+          - ','
+          - - Fn::GetAtt: BaseResourcesParameters.Outputs.WebAccessSecurityGroup
+            - Fn::GetAtt: BaseResourcesParameters.Outputs.PyramidProcessesSecurityGroup
+            - Fn::GetAtt: BaseResourcesParameters.Outputs.MountTargetSecurityGroup
+        Subnet:
+          Ref: Subnet
+        AssignPublicIP:
+          Ref: AssignPublicIP
+        InstallProxy: true
+        RepositoryType:
+          Fn::If:
+          - RestoreFromBackup
+          - reuseremote
+          - newremote
+        DependencyValue:
+          Fn::If:
+          - RestoreFromBackup
+          - Fn::GetAtt: RestoreBackup.Outputs.BackupBucket
+          - No backup
+Outputs:
+  PyramidPublicURL:
+    Value:
+      Fn::If:
+      - PublicIP
+      - Fn::Join:
+        - ''
+        - - http://
+          - Fn::GetAtt: CentralInstance.Outputs.PublicDNSName
+      - No public URL
+    Description: Pyramid Public URL
+  PrivateDNSName:
+    Value:
+      Fn::GetAtt: CentralInstance.Outputs.PrivateDNSName
+    Description: Instance Private DNS name
+  PublicDNSName:
+    Value:
+      Fn::GetAtt: CentralInstance.Outputs.PublicDNSName
+    Description: Instance Public DNS name
+  VPC:
+    Value:
+      Ref: VPCID
+    Description: VPC for deployment
+  KeyPairName:
+    Value:
+      Ref: KeyPairName
+    Description: Key Pair for instances
+  PyramidRole:
+    Value:
+      Fn::GetAtt: BaseResourcesParameters.Outputs.PyramidRole
+    Description: IAM Role for instances launched from this stack
+  PyramidInstanceProfile:
+    Value:
+      Fn::GetAtt: BaseResourcesParameters.Outputs.PyramidInstanceProfile
+    Description: IAM Instance Profile for instances launched from this stack
+  PyramidProcessesSecurityGroup:
+    Value:
+      Fn::GetAtt: BaseResourcesParameters.Outputs.PyramidProcessesSecurityGroup
+    Description: Security Group for Pyramid instances' internal communication
+  MountTargetSecurityGroup:
+    Value:
+      Fn::GetAtt: BaseResourcesParameters.Outputs.MountTargetSecurityGroup
+    Description: Security Group for EFS Mount Targets
+  SharedFileSystem:
+    Value:
+      Fn::GetAtt: BaseResourcesParameters.Outputs.SharedFileSystem
+    Description: EFS file system ID for the shared file system across the deployment
+  InitialUsername:
+    Value:
+      Ref: InitialUsername
+    Description: Initial Pyramid user name
+  RepositoryDatabaseType:
+    Value:
+      Fn::If:
+      - DatabaseTypeIsMicrosoft
+      - MicrosoftSQLServer
+      - PostgreSQL
+    Description: RDS Database type
+  RepositoryDatabaseAddress:
+    Value:
+      Fn::GetAtt: CreateRepositoryDatabaseService.Outputs.RDSEndPointAddress
+    Description: Repository database address
+  RepositoryDatabasePort:
+    Value:
+      Fn::GetAtt: CreateRepositoryDatabaseService.Outputs.RDSEndPointPort
+    Description: Repository database port
+  RepositoryDatabaseServiceName:
+    Value:
+      Ref: RDSServiceName
+    Description: Repository database RDS Service name
+  RepositoryDatabaseUsername:
+    Value:
+      Ref: RDSUser
+    Description: Repository database user name
+  RepositoryDatabasePasswordARN:
+    Value:
+      Ref: RDSPasswordSecret
+    Description: RDS Password in Secrets Manager
+  RepositoryDatabaseName:
+    Value:
+      Ref: RDSName
+    Description: Repository database schema name
+  RDSSecurityGroup:
+    Value:
+      Fn::GetAtt: CreateRepositoryDatabaseService.Outputs.RDSSecurityGroup
+    Description: Security Group access to repository
+  RDSEncryptionKeyARN:
+    Value:
+      Fn::GetAtt: CreateRepositoryDatabaseService.Outputs.RDSEncryptionKeyARN
+    Description: Repository database encryption key ARN
+
+
