@@ -1,0 +1,123 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Test Instance to check network connectivity before the real installation happens
+Parameters:
+  VPCID:
+    Description: ID of your existing VPC for deployment.
+    Type: 'AWS::EC2::VPC::Id'
+    ConstraintDescription: Required
+  Subnet:
+    Description: >-
+      ID of subnet in Availability Zone for the Pyramid Servers (e.g., subnet-a0246dcd).
+    Type: 'AWS::EC2::Subnet::Id'
+    ConstraintDescription: Required
+  AssignPublicIP:
+    Description: >-
+      Assign public IP address and domain.
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false
+    ConstraintDescription: Required
+  BaseStackName:
+    Description: Base StackName this stack is a part of
+    Type: String
+    MinLength: '1'
+    AllowedPattern: '[-_a-zA-Z0-9]*'
+    ConstraintDescription: Required
+  KeyPairName:
+    Description: Name of an existing EC2 key pair for SSH connections.
+    Type: 'AWS::EC2::KeyPair::KeyName'
+    ConstraintDescription: Required
+
+Conditions:
+  AssignPublicIPCondition: !Equals
+   - !Ref AssignPublicIP
+   - 'true'
+Resources:
+  InstanceWaitHandle:
+    Type: 'AWS::CloudFormation::WaitConditionHandle'
+  InstanceWaitCondition:
+    Type: 'AWS::CloudFormation::WaitCondition'
+    Properties:
+      Handle: !Ref InstanceWaitHandle
+      Timeout: '900'
+      Count: 1
+  TestAccessSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Allow HTTP and HTTPS access to the instance
+      VpcId: !Ref VPCID
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+
+  NetworkTestingInstance:
+    Type: 'AWS::EC2::Instance'
+    DependsOn: TestAccessSecurityGroup
+    Properties:
+      ImageId: ami-005f9685cb30f234b
+      InstanceType: t2.micro
+      KeyName: !Ref KeyPairName
+      SecurityGroupIds: !If
+         - AssignPublicIPCondition
+         - !Ref 'AWS::NoValue'
+         - !Ref TestAccessSecurityGroup
+      SubnetId: !If
+         - AssignPublicIPCondition
+         - !Ref 'AWS::NoValue'
+         - !Ref Subnet
+      NetworkInterfaces: !If
+         - AssignPublicIPCondition
+         - -
+             AssociatePublicIpAddress: true
+             DeleteOnTermination: true
+             DeviceIndex: '0'
+             GroupSet: 
+               - !Ref TestAccessSecurityGroup
+             SubnetId: !Ref Subnet
+         - !Ref 'AWS::NoValue'
+      UserData:
+        Fn::Base64: !Sub |
+            #!/bin/bash
+            # yum install -y aws-cfn-bootstrap
+            #/opt/aws/bin/cfn-init -v --stack ${AWS::StackName} \
+            #  --resource NetworkTestingInstance  \
+            #  --region ${AWS::Region}
+            cat >/tmp/test_connect.py <<EOF
+            import sys
+            import urllib.request
+
+            try:
+                resp = urllib.request.urlopen("https://www.google.com", timeout=5).read()
+                if resp: print("ok")
+                sys.exit(0)
+            except Exception as e:
+                print("error, can not connect")
+                print(e)
+                sys.exit(5)
+            EOF
+            python3 /tmp/test_connect.py >/command-output.txt
+            retVal=$?
+            if [ $retVal -ne 0 ]; then
+               echo "/opt/aws/bin/cfn-signal  -r \"Error: $(cat /command-output.txt)\" -e $retVal --id \"Output\" --data=\"$(cat /command-output.txt)\" \"${InstanceWaitHandle}\"" >/cmd_signal.sh
+            else
+               echo "/opt/aws/bin/cfn-signal  -r \"Ok\" -e $retVal --id \"Output\" --data=\"$(cat /command-output.txt)\" \"${InstanceWaitHandle}\"" >/cmd_signal.sh
+            fi
+            bash /cmd_signal.sh
+            echo Contents of /command-output.txt = $(cat /command-output.txt)
+            exit $retVal
+Outputs:
+  TestOutput:
+    Value: !GetAtt [InstanceWaitCondition, Data]
+    Description: The output of the network test
+  TestInstanceId:
+    Value: !Ref NetworkTestingInstance
+    Description: The instanceid for the test
+  TestInstanceSG:
+    Value: !Ref TestAccessSecurityGroup
+    Description: The egress SG for the testinstance
